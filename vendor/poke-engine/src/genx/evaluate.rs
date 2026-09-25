@@ -3,7 +3,7 @@ use super::items::Items;
 use super::state::PokemonVolatileStatus;
 use super::damage_calc::type_effectiveness_modifier;
 use super::generate_instructions::{get_effective_speed, MAX_SLEEP_TURNS};
-use crate::choices::MoveCategory;
+use crate::choices::{Choices, MoveCategory};
 use crate::state::{Pokemon, PokemonStatus, Side, SideReference, State};
 use std::sync::OnceLock;
 
@@ -302,6 +302,26 @@ fn attacks_with(pokemon: &Pokemon, category: MoveCategory) -> bool {
     pokemon.moves.into_iter().any(|mv| mv.choice.category == category)
 }
 
+/// Moves that strike Defense although they are special, and the one that attacks with the user's own Defense.
+const SPECIAL_ON_DEFENSE: [Choices; 3] = [Choices::PSYSHOCK, Choices::PSYSTRIKE, Choices::SECRETSWORD];
+
+/// Which of our defences the opposing active Pokémon's moves strike: (Defense, Special Defense). A defensive boost
+/// against an attacker that never hits that stat changes nothing, yet each stage counted in full: Annihilape's Bulk Up
+/// Defense was worth as much against a Calm Mind Cobalion as against a physical one (2687500903).
+fn struck_defences(opponent: &Pokemon) -> (bool, bool) {
+    let mut physical = false;
+    let mut special = false;
+    for mv in opponent.moves.into_iter() {
+        match mv.choice.category {
+            MoveCategory::Physical => physical = true,
+            MoveCategory::Special if SPECIAL_ON_DEFENSE.contains(&mv.id) => physical = true,
+            MoveCategory::Special => special = true,
+            _ => {}
+        }
+    }
+    (physical, special)
+}
+
 /// HP, status and item: the part of one Pokémon's value that the evaluation floors at zero, so that a low-HP Pokémon
 /// never scores below nothing and gives the other side a reason to keep it alive.
 fn pokemon_features(pokemon: &Pokemon) -> Features {
@@ -324,7 +344,8 @@ fn pokemon_features(pokemon: &Pokemon) -> Features {
 
 /// One side's terms. With `w`, each Pokémon's own part is floored at zero as the evaluation does and the weighted
 /// total is returned alongside; the raw terms leave the floor out, being a linear description for fitting.
-fn side_features(side: &Side, w: Option<&Weights>) -> (Features, f32) {
+fn side_features(side: &Side, other: &Side, w: Option<&Weights>) -> (Features, f32) {
+    let (struck_physically, struck_specially) = struck_defences(other.get_active_immutable());
     let mut total = Features::default();
     let mut floored = 0.0;
     let mut used_tera = false;
@@ -353,11 +374,17 @@ fn side_features(side: &Side, w: Option<&Weights>) -> (Features, f32) {
                 if attacks_with(pkmn, MoveCategory::Physical) {
                     total.attack_boost += get_boost_multiplier(side.attack_boost);
                 }
-                total.defense_boost += get_boost_multiplier(side.defense_boost);
+                // Body Press attacks with the user's own Defense, so its boosts count whatever the opponent does.
+                let body_press = pkmn.moves.into_iter().any(|mv| mv.id == Choices::BODYPRESS);
+                if struck_physically || body_press {
+                    total.defense_boost += get_boost_multiplier(side.defense_boost);
+                }
                 if attacks_with(pkmn, MoveCategory::Special) {
                     total.special_attack_boost += get_boost_multiplier(side.special_attack_boost);
                 }
-                total.special_defense_boost += get_boost_multiplier(side.special_defense_boost);
+                if struck_specially {
+                    total.special_defense_boost += get_boost_multiplier(side.special_defense_boost);
+                }
                 total.speed_boost += get_boost_multiplier(side.speed_boost);
             }
         }
@@ -430,8 +457,8 @@ fn active_pair_features(state: &State) -> (f32, f32) {
 
 /// Side one's terms minus side two's, unweighted and without the per-Pokémon floor: the `features` command's output.
 pub fn evaluate_features(state: &State) -> Features {
-    let (mut ones, _) = side_features(&state.side_one, None);
-    let (twos, _) = side_features(&state.side_two, None);
+    let (mut ones, _) = side_features(&state.side_one, &state.side_two, None);
+    let (twos, _) = side_features(&state.side_two, &state.side_one, None);
     ones.add(&twos, -1.0);
     let (speed, matchup) = active_pair_features(state);
     ones.speed_advantage = speed;
@@ -441,7 +468,8 @@ pub fn evaluate_features(state: &State) -> Features {
 
 pub fn evaluate(state: &State) -> f32 {
     let w = weights();
-    let mut score = side_features(&state.side_one, Some(w)).1 - side_features(&state.side_two, Some(w)).1;
+    let mut score = side_features(&state.side_one, &state.side_two, Some(w)).1
+        - side_features(&state.side_two, &state.side_one, Some(w)).1;
     // Skipped at the default zero weights, so the search pays nothing for terms it does not use.
     if w.speed_advantage != 0.0 || w.matchup != 0.0 {
         let (speed, matchup) = active_pair_features(state);
