@@ -287,3 +287,19 @@ test('Trace also preserves the copied target\'s native ability across a switch',
   assert.equal(rotom.baseAbility, 'Levitate');
   assert.equal(rotom.ability, 'Levitate');
 });
+
+test('our transformed Pokémon copies every move from its request, and the target\'s set is known from it', () => {
+  // 2687703481: our Ditto as Latias had Psyshock, which Latias had not used yet; the copy from '-transform' left it
+  // out, so the search had no value for it and Ditto switched out rather than attack.
+  const t = new BattleTracker(room);
+  const row = (moves: string[]) => ({ ident: 'p1: Ditto', details: 'Ditto, L87', active: true, condition: '225/225',
+    baseAbility: 'Imposter', item: 'choicescarf', moves });
+  feed(t, `|request|${JSON.stringify({ active: [{ moves: [] }], side: { id: 'p1', pokemon: [row(['transform'])] } })}`);
+  feed(t, '|switch|p2a: Latias|Latias, L79, F|100/100\n|move|p2a: Latias|Calm Mind|p2a: Latias');
+  feed(t, '|switch|p1a: Ditto|Ditto, L87|225/225\n|-transform|p1a: Ditto|p2a: Latias|[from] ability: Imposter\n|turn|2');
+  assert.deepEqual(t.state.sides.p1.team[0]!.copiedMoves, ['Calm Mind'], 'only what Latias had shown');
+  feed(t, `|request|${JSON.stringify({ active: [{ moves: [] }], side: { id: 'p1', pokemon: [row(['psyshock', 'recover', 'calmmind', 'dracometeor'])] } })}`);
+  assert.deepEqual(t.state.sides.p1.team[0]!.copiedMoves, ['Psyshock', 'Recover', 'Calm Mind', 'Draco Meteor']);
+  const latias = t.state.sides.p2.team.find(p => p.species === 'Latias')!;
+  assert.deepEqual([...latias.revealedMoves].sort(), ['Calm Mind', 'Draco Meteor', 'Psyshock', 'Recover']);
+});

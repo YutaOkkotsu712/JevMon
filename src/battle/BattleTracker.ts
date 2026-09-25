@@ -503,6 +503,16 @@ export class BattleTracker {
       p.slot = index + 1; p.ident = canonicalIdent(ident); p.details = details; p.species = speciesFromDetails(details);
       this.condition(p, row.condition as string, true);
       if (Array.isArray(row.moves) && row.moves.every(m => typeof m === 'string')) p.knownMoves = [...row.moves];
+      // Transform copies every move the target has, and our request lists them all, where '-transform' could copy only
+      // the ones the target had shown. Our Ditto as Latias had Psyshock the search never saw, so each turn it weighed
+      // Recover and switches and never the attack Jev kept asking for (2687703481). The target's set is then known too.
+      if (p.transformedInto && Array.isArray(row.moves) && row.moves.every(m => typeof m === 'string') && row.moves.length) {
+        const names = (row.moves as string[]).map(m => dex.moves.get(m).exists ? dex.moves.get(m).name : m);
+        p.copiedMoves = names;
+        const foe = this.state.sides[id === 'p1' ? 'p2' : 'p1'];
+        const target = foe.team.find(x => !x.transformedInto && x.species === p.transformedInto);
+        if (target) for (const name of names) if (!target.revealedMoves.includes(name)) target.revealedMoves.push(name);
+      }
       if (row.active === true && Array.isArray(request.active)) {
         const slot = (request.active as unknown[])[0];
         if (isRecord(slot) && Array.isArray(slot.moves)) for (const m of slot.moves) {
