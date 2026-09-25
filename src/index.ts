@@ -121,15 +121,24 @@ function main(): void {
   const laddering = config.playMode === 'ladder' || config.playMode === 'both';
   const ladder = laddering && entryEnabled ? new LadderQueue({
     dryRun: config.dryRun, send: command => client.send(command), onStatus: log,
-    onGameInProgress: room => {
-      if (battle || finishedRooms.has(room)) return;
-      // Leaving first makes the join replay the whole battle even if this connection never left the room.
-      client.send(`|/leave ${room}`);
-      currentRoom = room; battle = createBattle(room, 'source: ladder, rejoined in progress'); battle.ready();
-      log(`rejoining ${room}, which the server says is still in progress`);
-    },
+    onGameInProgress: room => rejoin(room),
     onEnded: () => { clearTimeout(ladderTimer); ladderTimer = setTimeout(nextLadder, 5000); },
+    onSynced: () => { clearTimeout(ladderTimer); ladderTimer = setTimeout(nextLadder, 0); },
   }) : undefined;
+  // Rooms whose leave we sent only to rejoin them: the server answers that leave with a deinit, which is not the battle
+  // being unavailable. Taken as that, it dropped a game we had just rejoined, and the timer lost it (2687707629).
+  const rejoining = new Set<string>();
+  // Battles the server opened while another was being played; one at a time, so each is joined once the current ends.
+  const strays = new Set<string>();
+  function rejoin(room: string) {
+    if (battle || finishedRooms.has(room)) return;
+    strays.delete(room);
+    // Leaving first makes the join replay the whole battle even if this connection never left the room.
+    rejoining.add(room);
+    client.send(`|/leave ${room}`);
+    currentRoom = room; battle = createBattle(room, 'source: ladder, rejoined in progress'); battle.ready();
+    log(`rejoining ${room}, which the server says is still in progress`);
+  }
   if (ladder && config.opponent) log(config.playMode === 'both'
     ? 'play mode both: laddering, and taking challenges between ladder games'
     : 'play mode ladder: challenges are accepted only once the ladder run is complete');
@@ -161,6 +170,9 @@ function main(): void {
   }
   function nextLadder() {
     if (!ladder || battle || challenges?.awaitingBattle || cancelling) return;
+    // A game already running comes before any search or challenge, whatever the limits: its timer is running.
+    const stray = [...strays].find(room => !finishedRooms.has(room));
+    if (stray) { rejoin(stray); return; }
     if (takeChallenge()) return;
     // With challenges configured, the battle that just ended has already said so.
     if (limitReached()) { if (!challenges) logLimit(); return; }
@@ -224,6 +236,8 @@ function main(): void {
           if (!(Array.isArray(data.searching) && data.searching.includes('gen9randombattle'))) searchWithdrawn(Object.keys(data.games ?? {}).filter(isBattleRoom));
         } catch { /* a malformed update is reported by the queue */ }
       }
+      if (message.room && message.type === 'deinit' && rejoining.delete(message.room)) return;
+      if (message.room && message.type === 'init') rejoining.delete(message.room);
       // A ladder game that cannot be joined, such as one that ended while we were away, must not hold the queue.
       if (ladder && battle && message.room === currentRoom && (message.type === 'noinit' || message.type === 'deinit')) {
         battle.handle(message);
@@ -235,6 +249,10 @@ function main(): void {
         ? routeBattleInit(message.room, { current: battle ? currentRoom || null : null, finished: finishedRooms,
           challengeAwaiting: !!challenges?.awaitingBattle, laddering: !!ladder, ladderAwaiting: !!ladder?.awaitingBattle })
         : null;
+      if (route?.kind === 'ignore' && battle && message.room !== currentRoom && !finishedRooms.has(message.room!) && !strays.has(message.room!)) {
+        strays.add(message.room!);
+        log(`another battle opened while playing ${currentRoom}: ${message.room}; it is joined when this one ends`);
+      }
       if (route?.kind === 'renamed') {
         battle!.disconnect();
         finishedRooms.add(route.from);

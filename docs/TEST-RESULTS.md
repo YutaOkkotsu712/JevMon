@@ -2247,3 +2247,44 @@ Tests: 408 pass.
   3 status over an attack, and 1 setup over an attack (Calm Mind 0.684 against Moonblast 0.645, turn 23 of the same
   game).
 - `INSTRUCTIONS_VERSION` is `2026-09-25-audit-v8`.
+
+## Lash Out doubles in the engine (2026-09-25)
+
+- poke-engine priced Lash Out at 75 base power always. In 2687705634 Sinistcha, at 18%, used Strength Sap into
+  Oinkologne's Lash Out: the search gave it 0.842 on 76% of visits, expecting a heal to full. The Attack drop doubled
+  Lash Out, which knocked Sinistcha out from full HP.
+- Lash Out now doubles when its user moves second and the opponent's move surely lowered its stats first: Strength Sap,
+  a status move's own drop, or a secondary drop with no chance roll. It also doubles after an Intimidate switch-in.
+- Clear Body, White Smoke, Full Metal Body, Mirror Armor, Contrary and Clear Amulet block it. So does a Substitute,
+  except against Intimidate. Inner Focus, Oblivious, Own Tempo, Scrappy and Guard Dog block only Intimidate's drop.
+- The same turn replayed: Strength Sap 0.842 → 0.727 (49% of visits). It stays narrowly on top, because Sinistcha dies
+  either way and the drop stays on Oinkologne for the rest of the team.
+- Three engine tests: doubled after Eerie Impulse and after Strength Sap; not doubled moving first or holding Clear
+  Amulet; doubled against an Intimidate switch-in. The engine suite is 233 unit and 690 battle-mechanics tests, all
+  passing.
+
+## Our transformed Pokémon's moves come from the request (2026-09-25)
+
+- On '-transform' the tracker copied only the moves the target had shown. Our Ditto as Latias (2687703481) had Psyshock,
+  which Latias had not used yet, so the search held no value for it: 0% of visits, no score. Jev asked for it at 0.44 and
+  0.33 on turns 21 and 26. The guards skipped Recover at full HP, and Ditto switched out both times.
+- The request lists every move a transformed Pokémon has, so our copy now takes its moves from it. Those moves are
+  also recorded as revealed on the target, whose full set Transform has shown.
+- Replayed with all four moves, Psyshock scores 0.330 and 0.363. Against a +2/+2 Latias with Recover, the search still
+  leans to Recover or the Florges switch, but it now weighs the attack.
+
+## A restart mid-game no longer opens a second ladder game (2026-09-25)
+
+- The bot was restarted mid-game to deploy the audit-v8 revert. On logging in it searched the ladder at once. The game
+  in progress (2687705634) then arrived and was taken as the match, and counted a second time against MAX_BATTLES. The
+  search itself stayed open on the server and matched Seit417 three seconds later (2687707629).
+- That room was ignored, being a second battle. When the first game ended, the bot tried to rejoin it: it sends a leave
+  first, so the join replays the battle. The server answers that leave with a deinit, which was taken as the battle
+  being unavailable, so the room was dropped just before its join succeeded. The game was lost on the timer (2248 →
+  2231).
+- `LadderQueue` now holds any search until the server's first search update after login, or three seconds of silence.
+  A game that update lists is rejoined first.
+- A deinit answering our own rejoin leave is ignored. A battle that opens while another is being played is logged, and
+  joined before any search or challenge once the current one ends.
+- One new ladder test covers the restart order and the silent server. 429 TypeScript tests pass. Preflight over the
+  last 10 games gives no warnings.

@@ -14,9 +14,13 @@ import { isBattleRoom } from '../battle/BattleManager.js';
  * A match empties the search a moment before its battle begins, so an empty search is not taken as a lost one: the
  * queue keeps waiting for the battle, and only gives the search up if none begins within half a minute. Treating the
  * empty update as the end once let a second search start while the first match was still opening.
+ *
+ * After logging in, nothing is searched until the server's first search update says which games we are already in. A
+ * restart mid-game searched at once: the running game's room was taken for the match and counted twice, while the
+ * real search stayed open and matched a second game three seconds later, which was lost to the timer (2687707629).
  */
 export const LADDER_FORMAT = 'gen9randombattle';
-const RETRY_MS = 60_000, MAX_REFUSALS = 5;
+const RETRY_MS = 60_000, MAX_REFUSALS = 5, SYNC_MS = 3_000;
 export class LadderQueue {
   private ready = false;
   private searching = false;
@@ -25,19 +29,33 @@ export class LadderQueue {
   private gaveUp = false;
   private retry: ReturnType<typeof setTimeout> | undefined;
   private settle: ReturnType<typeof setTimeout> | undefined;
+  private synced = false;
+  private syncTimer: ReturnType<typeof setTimeout> | undefined;
   awaitingBattle = false;
   constructor(private readonly options: { dryRun: boolean; send: (command: string) => boolean; onStatus: (status: string) => void;
     /** A battle the server says we are already in, as after a restart mid-game. */
     onGameInProgress?: (room: string) => void;
     /** A confirmed search that ended with no battle, so the caller can decide whether to search again. */
     onEnded?: () => void;
-    retryMs?: number; settleMs?: number }) {}
+    /** The server has said which games we are in (or stayed silent long enough), so a search may start. */
+    onSynced?: () => void;
+    retryMs?: number; settleMs?: number; syncMs?: number }) {}
   /** A fresh login is a fresh attempt, so earlier refusals no longer count against it. */
-  authenticate(): void { this.ready = true; this.refusals = 0; this.gaveUp = false; }
-  disconnect(): void { clearTimeout(this.retry); clearTimeout(this.settle); this.ready = false; this.searching = false; this.confirmed = false; this.awaitingBattle = false; }
-  /** Start one search, unless one is running or a battle it found has not begun. */
+  authenticate(): void {
+    this.ready = true; this.refusals = 0; this.gaveUp = false; this.synced = false;
+    clearTimeout(this.syncTimer);
+    this.syncTimer = setTimeout(() => this.sync(), this.options.syncMs ?? SYNC_MS);
+    this.syncTimer.unref?.();
+  }
+  disconnect(): void { clearTimeout(this.retry); clearTimeout(this.settle); clearTimeout(this.syncTimer); this.ready = false; this.synced = false; this.searching = false; this.confirmed = false; this.awaitingBattle = false; }
+  private sync(): void {
+    if (!this.ready || this.synced) return;
+    this.synced = true; clearTimeout(this.syncTimer);
+    this.options.onSynced?.();
+  }
+  /** Start one search, unless one is running, a battle it found has not begun, or the server has yet to list our games. */
   search(): boolean {
-    if (!this.ready || this.searching || this.awaitingBattle || this.gaveUp) return false;
+    if (!this.ready || !this.synced || this.searching || this.awaitingBattle || this.gaveUp) return false;
     clearTimeout(this.retry);
     if (this.options.dryRun) { this.options.onStatus(`dry-run: would search the ${LADDER_FORMAT} ladder; not searching`); return false; }
     // Random formats bring their own team; clearing ours keeps a stale one from being validated against the format.
@@ -75,6 +93,7 @@ export class LadderQueue {
       }
       // Only a queue with nothing pending reads the list as games to rejoin; while a match opens, its battle is on the way.
       if (!this.searching && !this.awaitingBattle) for (const room of games) this.options.onGameInProgress?.(room);
+      this.sync();
       return;
     }
     if (message.type === 'popup' && this.searching && !this.confirmed) {

@@ -7,6 +7,8 @@ import { readConfig } from '../src/config/env.js';
 const frame = (line: string) => parseFrame(line)[0]!;
 /** Polls rather than sleeping a fixed time, so a busy machine delays the test instead of failing it. */
 const until = async (condition: () => boolean) => { for (let i = 0; i < 200 && !condition(); i++) await new Promise(r => setTimeout(r, 10)); };
+/** The first search update after login, listing no games: the server's word that a search may start. */
+const synced = (q: LadderQueue) => q.handle(frame('|updatesearch|{"searching":[],"games":null}'));
 const queue = (dryRun = false, retryMs = 5) => {
   const sent: string[] = [], status: string[] = [], games: string[] = [];
   const q = new LadderQueue({ dryRun, retryMs, send: c => { sent.push(c); return true; }, onStatus: s => status.push(s), onGameInProgress: r => games.push(r) });
@@ -23,13 +25,16 @@ test('one search at a time, only once logged in, and never in dry-run', () => {
   const { q, sent } = queue();
   assert.equal(q.search(), false, 'not before authentication');
   q.authenticate();
+  assert.equal(q.search(), false, 'nor before the server lists the games we are in');
+  synced(q);
   assert.equal(q.search(), true);
   assert.deepEqual(sent, ['|/utm null', '|/search gen9randombattle']);
   assert.equal(q.search(), false, 'a second search while one runs is refused locally');
   q.started();
   assert.equal(q.awaitingBattle, false);
-  const dry = queue(true); dry.q.authenticate();
+  const dry = queue(true); dry.q.authenticate(); synced(dry.q);
   assert.equal(dry.q.search(), false); assert.deepEqual(dry.sent, []);
+  q.disconnect(); dry.q.disconnect();
 });
 
 test('a match empties the search before its battle opens, so the queue keeps waiting for it', async () => {
@@ -37,7 +42,7 @@ test('a match empties the search before its battle opens, so the queue keeps wai
   const sent: string[] = [], games: string[] = [];
   const q = new LadderQueue({ dryRun: false, settleMs: 30, send: c => { sent.push(c); return true; }, onStatus: () => {},
     onGameInProgress: r => games.push(r), onEnded: () => ended.push(1) });
-  q.authenticate(); q.search();
+  q.authenticate(); synced(q); q.search();
   q.handle(frame('|updatesearch|{"searching":["gen9randombattle"],"games":null}'));
   // What Showdown sent on 23 September: the search emptied with no game listed, then the game, then the battle.
   q.handle(frame('|updatesearch|{"searching":[],"games":null}'));
@@ -61,9 +66,30 @@ test('a match empties the search before its battle opens, so the queue keeps wai
   q.disconnect();
 });
 
+test('after a restart the game in progress is rejoined before any search, and silence still lets one start', async () => {
+  // 2687707629: a restart mid-game searched at once; the running game was taken for the match and the search, still
+  // open on the server, matched a second game that the timer lost.
+  const order: string[] = [];
+  const q = new LadderQueue({ dryRun: false, send: () => true, onStatus: () => {},
+    onGameInProgress: r => order.push(`rejoin ${r}`), onSynced: () => order.push('synced') });
+  q.authenticate();
+  q.handle(frame('|updatesearch|{"searching":[],"games":{"battle-gen9randombattle-2687705634":"[Gen 9] Random Battle"}}'));
+  assert.deepEqual(order, ['rejoin battle-gen9randombattle-2687705634', 'synced'], 'the game first, then the go-ahead');
+  q.handle(frame('|updatesearch|{"searching":[],"games":null}'));
+  assert.equal(order.length, 2, 'synced once per login');
+  q.disconnect();
+  const quiet: string[] = [];
+  const r = new LadderQueue({ dryRun: false, syncMs: 10, send: () => true, onStatus: () => {}, onSynced: () => quiet.push('synced') });
+  r.authenticate();
+  assert.equal(r.search(), false);
+  await until(() => quiet.length === 1);
+  assert.equal(r.search(), true, 'a server that never lists games does not block the ladder');
+  r.disconnect();
+});
+
 test('a refused search is retried a minute later, and given up after repeated refusals', async () => {
   const { q, sent, status } = queue(false, 5);
-  q.authenticate(); q.search();
+  q.authenticate(); synced(q); q.search();
   q.handle(frame('|popup|Due to high load, you are limited to 12 battles every 3 minutes.'));
   assert.match(status.at(-1)!, /refused \(Due to high load.*retrying/);
   await until(() => sent.filter(c => c.startsWith('|/search')).length === 2);
