@@ -104,7 +104,10 @@ function pokemon(p: PokemonState, set: Candidate | undefined, known: boolean, us
   const copied = p.transformedInto && p.copiedMoves.length ? [...new Set(p.copiedMoves.map(id))].slice(0, 4) : null;
   const maxHP = p.exactHP?.max ?? built.maxHP();
   const hp = p.fainted ? 0 : p.exactHP?.current ?? Math.max(1, Math.round((p.hpPercent ?? 100) / 100 * maxHP));
-  const ability = p.abilitySuppressed ? 'NONE' : upper(p.ability ?? set?.ability) || 'NONE';
+  // Harvest restores only a berry that was eaten: knocked off or tricked away, there is nothing to bring back, and the
+  // engine cannot tell the two apart.
+  const harvestIdle = id(p.ability ?? set?.ability) === 'harvest' && p.item === '' && !p.lastBerry;
+  const ability = p.abilitySuppressed || harvestIdle ? 'NONE' : upper(p.ability ?? set?.ability) || 'NONE';
   // A Ditto is Imposter underneath whatever it copied: the engine reverts to the base ability on switching out, and
   // Imposter turns it back into a Ditto there and copies whatever is out when it returns.
   const imposter = !p.abilitySuppressed && canonicalSpecies(p.species) === 'Ditto' &&
@@ -219,6 +222,12 @@ function side(s: BattleState, sideId: SideId, known: boolean, world: World, lega
   const shell = Math.floor(maxHP / 4);
   const subHP = me?.substitute && me.substitute.hits > 0
     ? Math.max(1, Math.min(shell, Math.round((me.substitute.hp[0] + me.substitute.hp[1]) / 2))) : shell;
+  // A Future Sight this side cast: the engine sets 3 on the turn it is used and strikes as it counts down from 1, at the
+  // end of the second turn after, with the user's stats. Before this a pending one never reached it, 120 power unseen.
+  const pending = v.slotConditions.futureSight;
+  const casterSlot = pending ? team.findIndex(p => p.id === pending.fromId) : -1;
+  const futureLeft = pending ? 3 - elapsed(s, pending.setOnTurn) : 0;
+  const futureSight = casterSlot >= 0 && futureLeft >= 1 ? [futureLeft, casterSlot] : [0, 0];
   // An opposing Wish carries no exact HP, so it heals half of its user's max HP in this world's sampled set.
   const wish = v.slotConditions.wish;
   const wishHP = wish ? wish.healsHP ?? Math.floor((built(team.find(p => p.id === wish.fromId)) ?? 0) / 2) : 0;
@@ -227,7 +236,7 @@ function side(s: BattleState, sideId: SideId, known: boolean, world: World, lega
     b('atk'), b('def'), b('spa'), b('spd'), b('spe'), b('accuracy'), b('evasion'),
     // The engine sets Wish to 2 and heals when it reaches 1, one step down per end of turn.
     ...(wish && wishHP > 0 && 2 - (s.turn - wish.setOnTurn) >= 1 ? [2 - (s.turn - wish.setOnTurn), wishHP] : [0, 0]),
-    0, 0, false, 'NONE', false, false, !!legal && !legal.canSwitch, lastUsed, false].join('='), team };
+    ...futureSight, false, 'NONE', false, false, !!legal && !legal.canSwitch, lastUsed, false].join('='), team };
 }
 
 /** Our side is side one; the result names the Pokémon behind each engine switch so moves can be mapped back. */

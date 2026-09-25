@@ -372,6 +372,12 @@ export class BattleTracker {
           }
           pokemon.volatiles[effect] = { sinceTurn: this.state.turn, data: third || null };
           if (effect === 'confusion' && a.includes('[fatigue]')) delete pokemon.rampage;
+          // Future Sight is announced on its user and lands on the other side's slot, whoever is there by then; it
+          // belongs to the side, so it outlasts the user switching out.
+          if (effectId(effect) === 'futuresight') {
+            const own = this.state.sides[pokemon.id.split('-')[0] as 'p1' | 'p2'];
+            if (own) own.slotConditions.futureSight = { setOnTurn: this.state.turn, fromId: pokemon.id };
+          }
         }
         break;
       // Glaive Rush, Destiny Bond and Grudge last until their user next tries to move. Glaive Rush matters most: until
@@ -391,6 +397,8 @@ export class BattleTracker {
       case '-end':
         if (pokemon) {
           delete pokemon.volatiles[effectName(second)];
+          // The strike is announced on its target; the Future Sight belonged to the other side.
+          if (effectId(effectName(second)) === 'futuresight') delete this.state.sides[pokemon.id.startsWith('p1') ? 'p2' : 'p1'].slotConditions.futureSight;
           if (a.includes('[partiallytrapped]') && pokemon.volatiles.partiallytrapped?.data === effectName(second)) delete pokemon.volatiles.partiallytrapped;
         }
         break;

@@ -453,6 +453,22 @@ test('two-turn moves, type changes, Truant and grounding reach the engine', () =
   assert.doesNotMatch(one[8]!, /TRUANT:/, 'Slaking loafed on turn 2, so it moves on turn 3');
 });
 
+test('a pending Future Sight and an eaten Harvest berry reach the engine', () => {
+  const b = battleFor([ourRow('Exeggutor', 88, ['Psychic', 'Leech Seed', 'Substitute', 'Sleep Powder'], 'Harvest', 'Sitrus Berry', 'Steel')], 'Slowking', 85);
+  b.feed('|turn|2'); b.feed('|move|p2a: Foe|Future Sight|p1a: Exeggutor'); b.feed('|-start|p2a: Foe|move: Future Sight');
+  b.feed('|-enditem|p1a: Exeggutor|Sitrus Berry|[eat]'); b.feed('|turn|3');
+  const [ours, theirs] = engineStateOf(b.state, 'p1', worldOf(b.state, 'p1', () => 0.5)).state.split('/');
+  const two = theirs!.split('='), one = ours!.split('=');
+  assert.deepEqual([two[20], two[21]], ['2', '0'], 'cast on turn 2 by the Slowking in slot 0: it strikes at the end of turn 4');
+  assert.equal(one[Number(one[6])]!.split(',')[8], 'HARVEST', 'the Sitrus was eaten, so Harvest can bring it back');
+  b.feed('|-end|p1a: Exeggutor|move: Future Sight'); b.feed('|turn|4');
+  assert.equal(b.state.sides.p2.slotConditions.futureSight, undefined, 'the strike clears it from the side that cast it');
+  const knocked = battleFor([ourRow('Exeggutor', 88, ['Psychic', 'Leech Seed', 'Substitute', 'Sleep Powder'], 'Harvest', 'Sitrus Berry', 'Steel')], 'Weavile', 85);
+  knocked.feed('|-enditem|p1a: Exeggutor|Sitrus Berry|[from] move: Knock Off|[of] p2a: Foe'); knocked.feed('|turn|2');
+  const k = engineStateOf(knocked.state, 'p1', worldOf(knocked.state, 'p1', () => 0.5)).state.split('/')[0]!.split('=');
+  assert.equal(k[Number(k[6])]!.split(',')[8], 'NONE', 'knocked off, it has nothing to harvest');
+});
+
 test('an opposing Choice lock reaches the engine as ours does', () => {
   const b = battleFor([ourRow('Gengar', 82, ['Shadow Ball', 'Sludge Wave', 'Focus Blast', 'Nasty Plot'], 'Cursed Body', 'Life Orb', 'Ghost')], 'Heracross', 83);
   b.feed('|move|p2a: Foe|Close Combat|p1a: Gengar'); b.feed('|-immune|p1a: Gengar'); b.feed('|turn|2');

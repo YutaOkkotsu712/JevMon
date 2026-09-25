@@ -2896,13 +2896,15 @@ fn on_terrain_end(
     }
 }
 
+/// Returns any further outcomes the end of turn splits into (Harvest's half chance), which the caller keeps beside
+/// this one; this one's percentage is scaled to match.
 fn add_end_of_turn_instructions(
     state: &mut State,
     mut incoming_instructions: &mut StateInstructions,
     first_move_side: &SideReference,
-) {
+) -> Vec<StateInstructions> {
     if state.side_one.force_switch || state.side_two.force_switch {
-        return;
+        return vec![];
     }
 
     let sides = [first_move_side, &first_move_side.get_other_side()];
@@ -3647,6 +3649,44 @@ fn add_end_of_turn_instructions(
             side.side_conditions.protect -= side.side_conditions.protect;
         }
     } // end volatile statuses
+
+    // Harvest brings back an eaten berry at the end of the turn: always in sun, otherwise half the time, so the outcome
+    // splits in two. Random Battle Harvest sets carry Sitrus Berry, which is the one restored; the search is told of
+    // Harvest only when the berry was eaten, not knocked off.
+    let mut harvested: Vec<StateInstructions> = vec![];
+    let sun = state.weather_is_active(&Weather::SUN) || state.weather_is_active(&Weather::HARSHSUN);
+    for side_ref in sides {
+        let active = state.get_side(side_ref).get_active();
+        if active.ability != Abilities::HARVEST || active.hp == 0 || active.item != Items::NONE {
+            continue;
+        }
+        let restore = Instruction::ChangeItem(ChangeItemInstruction {
+            side_ref: *side_ref,
+            current_item: Items::NONE,
+            new_item: Items::SITRUSBERRY,
+        });
+        if sun {
+            active.item = Items::SITRUSBERRY;
+            incoming_instructions.instruction_list.push(restore.clone());
+            for branch in harvested.iter_mut() {
+                branch.instruction_list.push(restore.clone());
+            }
+        } else {
+            let mut splits = vec![];
+            for branch in harvested.iter_mut() {
+                branch.update_percentage(0.5);
+                let mut with = branch.clone();
+                with.instruction_list.push(restore.clone());
+                splits.push(with);
+            }
+            incoming_instructions.update_percentage(0.5);
+            let mut with = incoming_instructions.clone();
+            with.instruction_list.push(restore);
+            harvested.push(with);
+            harvested.extend(splits);
+        }
+    }
+    harvested
 }
 
 /** Loaded Dice on a 2–5 hit move gives four or five hits, each half the time. Run both
@@ -4388,6 +4428,7 @@ pub fn generate_instructions_from_move_pair(
                 branch_on_damage,
             );
 
+            let mut harvested = vec![];
             for state_instruction in state_instructions_vec.iter_mut() {
                 state.apply_instructions(&state_instruction.instruction_list);
                 if !(s1_replacing_fainted_pkmn
@@ -4395,10 +4436,11 @@ pub fn generate_instructions_from_move_pair(
                     || state.side_one.force_switch
                     || state.side_two.force_switch)
                 {
-                    add_end_of_turn_instructions(state, state_instruction, &SideReference::SideOne);
+                    harvested.extend(add_end_of_turn_instructions(state, state_instruction, &SideReference::SideOne));
                 }
                 state.reverse_instructions(&state_instruction.instruction_list);
             }
+            state_instructions_vec.extend(harvested);
         }
         SideMovesFirst::SideTwo => {
             handle_both_moves(
@@ -4410,6 +4452,7 @@ pub fn generate_instructions_from_move_pair(
                 &mut state_instructions_vec,
                 branch_on_damage,
             );
+            let mut harvested = vec![];
             for state_instruction in state_instructions_vec.iter_mut() {
                 state.apply_instructions(&state_instruction.instruction_list);
                 if !(s1_replacing_fainted_pkmn
@@ -4417,10 +4460,11 @@ pub fn generate_instructions_from_move_pair(
                     || state.side_one.force_switch
                     || state.side_two.force_switch)
                 {
-                    add_end_of_turn_instructions(state, state_instruction, &SideReference::SideTwo);
+                    harvested.extend(add_end_of_turn_instructions(state, state_instruction, &SideReference::SideTwo));
                 }
                 state.reverse_instructions(&state_instruction.instruction_list);
             }
+            state_instructions_vec.extend(harvested);
         }
         SideMovesFirst::SpeedTie => {
             let mut side_one_moves_first_instruction = incoming_instructions.clone();
@@ -4437,6 +4481,7 @@ pub fn generate_instructions_from_move_pair(
                 &mut state_instructions_vec,
                 branch_on_damage,
             );
+            let mut harvested = vec![];
             for state_instruction in state_instructions_vec.iter_mut() {
                 state.apply_instructions(&state_instruction.instruction_list);
                 if !(s1_replacing_fainted_pkmn
@@ -4444,10 +4489,11 @@ pub fn generate_instructions_from_move_pair(
                     || state.side_one.force_switch
                     || state.side_two.force_switch)
                 {
-                    add_end_of_turn_instructions(state, state_instruction, &SideReference::SideOne);
+                    harvested.extend(add_end_of_turn_instructions(state, state_instruction, &SideReference::SideOne));
                 }
                 state.reverse_instructions(&state_instruction.instruction_list);
             }
+            state_instructions_vec.extend(harvested);
 
             // side_two moves first
             let mut side_two_moves_first_si = Vec::with_capacity(4);
@@ -4460,6 +4506,7 @@ pub fn generate_instructions_from_move_pair(
                 &mut side_two_moves_first_si,
                 branch_on_damage,
             );
+            let mut harvested = vec![];
             for state_instruction in side_two_moves_first_si.iter_mut() {
                 state.apply_instructions(&state_instruction.instruction_list);
                 if !(s1_replacing_fainted_pkmn
@@ -4467,10 +4514,11 @@ pub fn generate_instructions_from_move_pair(
                     || state.side_one.force_switch
                     || state.side_two.force_switch)
                 {
-                    add_end_of_turn_instructions(state, state_instruction, &SideReference::SideTwo);
+                    harvested.extend(add_end_of_turn_instructions(state, state_instruction, &SideReference::SideTwo));
                 }
                 state.reverse_instructions(&state_instruction.instruction_list);
             }
+            side_two_moves_first_si.extend(harvested);
 
             // combine both vectors into the final vector
             state_instructions_vec.extend(side_two_moves_first_si);
@@ -4555,11 +4603,13 @@ fn get_instructions_from_pursuit_hitting_switching_target(
         i += 1;
     }
 
+    let mut harvested = vec![];
     for state_instruction in state_instructions_vec.iter_mut() {
         state.apply_instructions(&state_instruction.instruction_list);
-        add_end_of_turn_instructions(state, state_instruction, &SideReference::SideOne);
+        harvested.extend(add_end_of_turn_instructions(state, state_instruction, &SideReference::SideOne));
         state.reverse_instructions(&state_instruction.instruction_list);
     }
+    state_instructions_vec.extend(harvested);
 }
 
 pub fn calculate_damage_rolls(

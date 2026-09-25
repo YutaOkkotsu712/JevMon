@@ -22960,3 +22960,42 @@ fn test_throat_chop_stops_sound_moves() {
     );
     assert!(damage_to(&instructions, SideReference::SideTwo) > 0);
 }
+
+fn restores_berry(i: &StateInstructions) -> bool {
+    i.instruction_list.iter().any(|x| matches!(x, Instruction::ChangeItem(c) if c.new_item == Items::SITRUSBERRY))
+}
+
+#[test]
+fn test_harvest_restores_an_eaten_berry_half_the_time_and_always_in_sun() {
+    let mut state = State::default();
+    state.side_one.get_active().ability = Abilities::HARVEST;
+    state.side_one.get_active().item = Items::NONE;
+    let instructions = generate_instructions_with_state_assertion(&mut state, &MoveChoice::Move(PokemonMoveIndex::M0), &MoveChoice::Move(PokemonMoveIndex::M0));
+    let restored: f32 = instructions.iter().filter(|i| restores_berry(i)).map(|i| i.percentage).sum();
+    let total: f32 = instructions.iter().map(|i| i.percentage).sum();
+    assert!((total - 100.0).abs() < 0.01, "the outcomes still add up: {}", total);
+    assert!((restored - 50.0).abs() < 0.01, "half of them restore the berry: {}", restored);
+
+    state.weather.weather_type = Weather::SUN;
+    state.weather.turns_remaining = 3;
+    let sunny = generate_instructions_with_state_assertion(&mut state, &MoveChoice::Move(PokemonMoveIndex::M0), &MoveChoice::Move(PokemonMoveIndex::M0));
+    let restored: f32 = sunny.iter().filter(|i| restores_berry(i)).map(|i| i.percentage).sum();
+    assert!((restored - 100.0).abs() < 0.01, "in sun every outcome does: {}", restored);
+
+    let mut holding = State::default();
+    holding.side_one.get_active().ability = Abilities::HARVEST;
+    holding.side_one.get_active().item = Items::SITRUSBERRY;
+    let kept = generate_instructions_with_state_assertion(&mut holding, &MoveChoice::Move(PokemonMoveIndex::M0), &MoveChoice::Move(PokemonMoveIndex::M0));
+    assert!(!kept.iter().any(restores_berry), "a berry still held needs nothing");
+}
+
+#[test]
+fn test_a_pending_future_sight_strikes_at_the_end_of_its_last_turn() {
+    let mut state = State::default();
+    state.side_one.future_sight = (1, PokemonIndex::P0);
+    let before = state.side_two.get_active_immutable().hp;
+    let instructions = generate_instructions_with_state_assertion(&mut state, &MoveChoice::Move(PokemonMoveIndex::M0), &MoveChoice::Move(PokemonMoveIndex::M0));
+    let after = applied(&instructions, &state, 0);
+    assert!(after.side_two.get_active_immutable().hp < before, "the side it was cast on takes the hit");
+    assert_eq!(0, after.side_one.future_sight.0);
+}

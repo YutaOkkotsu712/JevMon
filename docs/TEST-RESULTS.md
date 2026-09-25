@@ -2167,3 +2167,25 @@ Tests: 408 pass.
   - One new test covering Protean's typing, Smack Down, Truant on and off, and Phantom Force's charging turn. 425 pass.
   - The engine read a position carrying all of them, and the opponent's only option was the Phantom Force strike. It
     took all 830 logged positions with timed effects.
+
+## Future Sight and Harvest (2026-09-25)
+
+- **Future Sight** (120 power, landing at the end of the second turn after) never reached the engine, which models it.
+  - The tracker now records it per side, as Wish, from the `-start` on its user. It clears it on the `-end` Showdown
+    announces on the target.
+  - The search writes the turns left, 3 less the ends of turn seen, and the caster's slot, whose stats the engine uses.
+    It outlasts the caster switching out.
+- **Harvest** (Exeggutor, Exeggutor-Alola, Tropius, Trevenant, Arboliva) brings back an eaten berry at the end of the
+  turn, always in sun and otherwise half the time.
+  - The engine's end-of-turn step could not branch. It now returns the extra outcomes it splits into; its five callers
+    keep them beside the rest, and each outcome's percentage is halved.
+  - The berry restored is Sitrus, which every Random Battle Harvest set carries.
+  - The search tells the engine of Harvest only once a berry was eaten (`lastBerry`). Knocked off or tricked away, there
+    is nothing to bring back, and the engine cannot tell the two apart.
+- Checks:
+  - Engine: 233 unit and 687 battle-mechanics tests pass, including new ones for Harvest (a 50% split, 100% in sun,
+    nothing while a berry is held) and a pending Future Sight striking.
+  - TypeScript: 426 pass, including Future Sight written and cleared, and Harvest after an eaten berry but not after
+    Knock Off.
+  - On logged positions only those with a Harvest user changed. Deployed; the previous binary is kept as
+    `poke-engine.before-harvest`.

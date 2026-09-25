@@ -95,7 +95,9 @@ export interface SideState {
    * Recovery waiting on this side's slot. A Wish heals whoever occupies the slot when it lands, which is
    * what makes passing it possible; a Healing Wish restores whatever comes in after its user faints.
    */
-  slotConditions: { wish?: { setOnTurn: number; healsHP: number | null; from: string; fromId?: string }; healingWish?: { from: string; move: string } };
+  slotConditions: { wish?: { setOnTurn: number; healsHP: number | null; from: string; fromId?: string }; healingWish?: { from: string; move: string };
+    /** A Future Sight this side cast, striking the other side's slot at the end of the second turn after. */
+    futureSight?: { setOnTurn: number; fromId: string } };
   identityUncertain: boolean;
 }
 export interface BattleState {
