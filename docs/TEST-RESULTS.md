@@ -1880,3 +1880,44 @@ Tests: 408 pass.
 - **Tests.** Three new ladder-review tests (Gogoat, Jumpluff's Strength Sap, the burn overshoot) and the updated
   Maushold case, where Population Bomb is now skipped. There is also a decision-loop test for the preferred fallback,
   which fails without it. 418 pass.
+
+## Ditto: Imposter in the engine (2026-09-25)
+
+- **What happened.** In 2687491039, Jev put 0.44 on bringing Ditto in after Hariyama fell to a +3 Skeledirge, 0.70 on
+  the next forced switch, and 0.65 a turn later. The search gave Ditto 0.01–0.04 of its visits each time, so Jirachi
+  came in instead, and Perrserker was sent into Incineroar's Will-O-Wisp and Flare Blitz.
+  - poke-engine had no Imposter and no Transform. Imposter was only a name in its ability list.
+  - In the search, our Ditto was a Pokémon with base 48 in every stat whose one move, Transform, did nothing.
+- **Engine.**
+  - On entering, Imposter copies the opposing active Pokémon: its typing (not a Tera), its stats other than HP, its
+    ability, its moves at 5 PP each, and its stat stages. HP, item and status stay Ditto's own.
+  - It fails into a Substitute or a fainted target, and the copied ability's own switch-in effect does not fire.
+  - On switching out it turns back into a Ditto: Transform only, Imposter, and Ditto's own stats.
+  - The engine's base-stat table covers only form changers, and recalculating from it panics for Ditto. So Ditto's
+    stats are restored from its flat 48s instead.
+  - The move change is a new `ChangeMove` instruction carrying the id difference. That keeps every instruction at the
+    engine's six bytes, which a test enforces. PP goes with a `DecrementPP` beside it.
+- **Search.** A transformed Ditto is written with Imposter as its base ability, so the engine turns it back into a Ditto
+  when it leaves during the lookahead.
+- **Effect on that game (16 worlds × 200 ms, one lane).**
+
+  | Turn | Ditto's score, old → new | Ditto's visits, old → new |
+  | --- | --- | --- |
+  | 13, forced switch | 0.22 → 0.45 | 0.02 → 0.03 |
+  | 15 | 0.18 → 0.29 | 0.19 → 0.49, now the top choice over Perrserker |
+  | 16, forced switch | 0.20 → 0.46 | 0.04 → 0.23 |
+
+  - On turn 13, Jirachi still outspeeds the 27% Skeledirge and knocks it out, and its Unaware would ignore a copied +3.
+- **Checks.**
+  - Engine tests: 233 unit and 675 battle-mechanics tests pass, including three new ones.
+    - Ditto copies a +3 Skeledirge on entry.
+    - It turns back on switch-out and copies again on returning.
+    - It fails into a Substitute.
+  - On 240 logged positions, the depth-2 matrices from the old and new binaries matched everywhere except positions with
+    an Imposter Ditto. The only other differences were 0.01, from the weights table's summation order.
+  - TypeScript: 418 pass.
+- **Deployed.** `target/release/poke-engine` was replaced while the bot ran. The old binary is kept as
+  `poke-engine.before-imposter`. This also promotes the weights-table build, whose default weights reproduce the old
+  evaluation.
+- **Also.** `freeKnockoutPassedUp` doubles secondary chances for a possible Serene Grace user, so a Jirachi's Iron Head
+  counts as a 60% flinch. The engine already doubled them.

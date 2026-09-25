@@ -1773,6 +1773,21 @@ impl State {
         }
     }
 
+    fn change_move(
+        &mut self,
+        side_reference: &SideReference,
+        move_index: &PokemonMoveIndex,
+        move_change: i16,
+    ) {
+        let side = match side_reference {
+            SideReference::SideOne => &mut self.side_one,
+            SideReference::SideTwo => &mut self.side_two,
+        };
+        let m = &mut side.get_active().moves[move_index];
+        m.id = Choices::from((m.id as i32 + move_change as i32) as u16);
+        m.choice = MOVES.get(&m.id).unwrap().to_owned();
+    }
+
     fn increment_pp(
         &mut self,
         side_reference: &SideReference,
@@ -1884,6 +1899,11 @@ impl State {
             Instruction::DisableMove(instruction) => {
                 self.disable_move(&instruction.side_ref, &instruction.move_index)
             }
+            Instruction::ChangeMove(instruction) => self.change_move(
+                &instruction.side_ref,
+                &instruction.move_index,
+                instruction.move_change,
+            ),
             Instruction::ChangeWish(instruction) => {
                 self.set_wish(&instruction.side_ref, instruction.wish_amount_change);
             }
@@ -2063,6 +2083,11 @@ impl State {
             Instruction::DisableMove(instruction) => {
                 self.enable_move(&instruction.side_ref, &instruction.move_index)
             }
+            Instruction::ChangeMove(instruction) => self.change_move(
+                &instruction.side_ref,
+                &instruction.move_index,
+                -instruction.move_change,
+            ),
             Instruction::Heal(instruction) => {
                 self.damage(&instruction.side_ref, instruction.heal_amount)
             }

@@ -10,14 +10,14 @@ use crate::choices::{
 use crate::define_enum_with_from_str;
 use crate::instruction::{
     ApplyVolatileStatusInstruction, BoostInstruction, ChangeAbilityInstruction,
-    ChangeItemInstruction, ChangeSideConditionInstruction, ChangeStatusInstruction, ChangeTerrain,
+    ChangeItemInstruction, ChangeMoveInstruction, ChangeStatInstruction, DecrementPPInstruction, ChangeSideConditionInstruction, ChangeStatusInstruction, ChangeTerrain,
     ChangeType, ChangeVolatileStatusDurationInstruction, ChangeWeather, DamageInstruction,
     FormeChangeInstruction, HealInstruction, Instruction, StateInstructions,
 };
 use crate::pokemon::PokemonName;
 use crate::state::{
-    PokemonBoostableStat, PokemonSideCondition, PokemonStatus, PokemonType, Side, SideReference,
-    State,
+    PokemonBoostableStat, PokemonMoveIndex, PokemonSideCondition, PokemonStatus, PokemonType, Side,
+    SideReference, State,
 };
 use std::cmp;
 
@@ -1060,11 +1060,251 @@ pub fn ability_after_damage_hit(
     }
 }
 
+/// The move a Random Battles Ditto carries, which Imposter's copy replaces while it is out.
+const DITTO_MOVES: [(Choices, i8); 4] = [
+    (Choices::TRANSFORM, 16),
+    (Choices::NONE, 0),
+    (Choices::NONE, 0),
+    (Choices::NONE, 0),
+];
+const MOVE_INDEXES: [PokemonMoveIndex; 4] = [
+    PokemonMoveIndex::M0,
+    PokemonMoveIndex::M1,
+    PokemonMoveIndex::M2,
+    PokemonMoveIndex::M3,
+];
+
+fn set_moves(
+    state: &mut State,
+    side_ref: &SideReference,
+    moves: [(Choices, i8); 4],
+    instructions: &mut StateInstructions,
+) {
+    let active = state.get_side(side_ref).get_active();
+    for (index, (id, pp)) in MOVE_INDEXES.iter().zip(moves) {
+        let current = &mut active.moves[index];
+        if current.id != id {
+            instructions
+                .instruction_list
+                .push(Instruction::ChangeMove(ChangeMoveInstruction {
+                    side_ref: *side_ref,
+                    move_index: *index,
+                    move_change: id as i16 - current.id as i16,
+                }));
+            current.id = id;
+            current.choice = crate::choices::MOVES.get(&id).unwrap().to_owned();
+        }
+        if current.pp != pp {
+            instructions
+                .instruction_list
+                .push(Instruction::DecrementPP(DecrementPPInstruction {
+                    side_ref: *side_ref,
+                    move_index: *index,
+                    amount: current.pp - pp,
+                }));
+            current.pp = pp;
+        }
+    }
+}
+
+/// Imposter: on entering, the Pokemon becomes a copy of the opposing active Pokemon: its typing (without a Tera),
+/// its stats other than HP, its ability, its moves at 5 PP each and its stat stages. HP, item and status stay its own.
+/// It fails into a Substitute or a fainted target. `ability_on_switch_out` turns it back.
+fn imposter_transform(
+    state: &mut State,
+    side_ref: &SideReference,
+    instructions: &mut StateInstructions,
+) {
+    let (attacking_side, defending_side) = state.get_both_sides(side_ref);
+    let target = defending_side.get_active_immutable();
+    if target.hp <= 0
+        || defending_side
+            .volatile_statuses
+            .contains(&PokemonVolatileStatus::SUBSTITUTE)
+    {
+        return;
+    }
+    let types = if target.terastallized {
+        target.base_types
+    } else {
+        target.types
+    };
+    let ability = target.ability;
+    let stats = [
+        target.attack,
+        target.defense,
+        target.special_attack,
+        target.special_defense,
+        target.speed,
+    ];
+    let copied: [(Choices, i8); 4] = [
+        target.moves.m0.id,
+        target.moves.m1.id,
+        target.moves.m2.id,
+        target.moves.m3.id,
+    ]
+    .map(|id| (id, if id == Choices::NONE { 0 } else { 5 }));
+    let boosts = [
+        (PokemonBoostableStat::Attack, defending_side.attack_boost, attacking_side.attack_boost),
+        (PokemonBoostableStat::Defense, defending_side.defense_boost, attacking_side.defense_boost),
+        (
+            PokemonBoostableStat::SpecialAttack,
+            defending_side.special_attack_boost,
+            attacking_side.special_attack_boost,
+        ),
+        (
+            PokemonBoostableStat::SpecialDefense,
+            defending_side.special_defense_boost,
+            attacking_side.special_defense_boost,
+        ),
+        (PokemonBoostableStat::Speed, defending_side.speed_boost, attacking_side.speed_boost),
+        (PokemonBoostableStat::Accuracy, defending_side.accuracy_boost, attacking_side.accuracy_boost),
+        (PokemonBoostableStat::Evasion, defending_side.evasion_boost, attacking_side.evasion_boost),
+    ];
+
+    let active = attacking_side.get_active();
+    if active.types != types {
+        instructions
+            .instruction_list
+            .push(Instruction::ChangeType(ChangeType {
+                side_ref: *side_ref,
+                new_types: types,
+                old_types: active.types,
+            }));
+        active.types = types;
+        if !attacking_side
+            .volatile_statuses
+            .contains(&PokemonVolatileStatus::TYPECHANGE)
+        {
+            instructions
+                .instruction_list
+                .push(Instruction::ApplyVolatileStatus(
+                    ApplyVolatileStatusInstruction {
+                        side_ref: *side_ref,
+                        volatile_status: PokemonVolatileStatus::TYPECHANGE,
+                    },
+                ));
+            attacking_side
+                .volatile_statuses
+                .insert(PokemonVolatileStatus::TYPECHANGE);
+        }
+    }
+    let active = attacking_side.get_active();
+    if active.ability != ability {
+        instructions
+            .instruction_list
+            .push(Instruction::ChangeAbility(ChangeAbilityInstruction {
+                side_ref: *side_ref,
+                ability_change: ability as i16 - active.ability as i16,
+            }));
+        active.ability = ability;
+    }
+    let current = [
+        active.attack,
+        active.defense,
+        active.special_attack,
+        active.special_defense,
+        active.speed,
+    ];
+    for (i, (new, old)) in stats.iter().zip(current).enumerate() {
+        if *new == old {
+            continue;
+        }
+        let change = ChangeStatInstruction {
+            side_ref: *side_ref,
+            amount: new - old,
+        };
+        instructions.instruction_list.push(match i {
+            0 => Instruction::ChangeAttack(change),
+            1 => Instruction::ChangeDefense(change),
+            2 => Instruction::ChangeSpecialAttack(change),
+            3 => Instruction::ChangeSpecialDefense(change),
+            _ => Instruction::ChangeSpeed(change),
+        });
+        match i {
+            0 => active.attack = *new,
+            1 => active.defense = *new,
+            2 => active.special_attack = *new,
+            3 => active.special_defense = *new,
+            _ => active.speed = *new,
+        }
+    }
+    for (stat, theirs, ours) in boosts {
+        if theirs == ours {
+            continue;
+        }
+        instructions
+            .instruction_list
+            .push(Instruction::Boost(BoostInstruction {
+                side_ref: *side_ref,
+                stat,
+                amount: theirs - ours,
+            }));
+        match stat {
+            PokemonBoostableStat::Attack => attacking_side.attack_boost = theirs,
+            PokemonBoostableStat::Defense => attacking_side.defense_boost = theirs,
+            PokemonBoostableStat::SpecialAttack => attacking_side.special_attack_boost = theirs,
+            PokemonBoostableStat::SpecialDefense => attacking_side.special_defense_boost = theirs,
+            PokemonBoostableStat::Speed => attacking_side.speed_boost = theirs,
+            PokemonBoostableStat::Accuracy => attacking_side.accuracy_boost = theirs,
+            PokemonBoostableStat::Evasion => attacking_side.evasion_boost = theirs,
+        }
+    }
+    set_moves(state, side_ref, copied, instructions);
+}
+
 pub fn ability_on_switch_out(
     state: &mut State,
     side_ref: &SideReference,
     instructions: &mut StateInstructions,
 ) {
+    // A Ditto that Imposter transformed goes back to its own moves and stats; its typing and ability revert below and
+    // with the TYPECHANGE volatile, and its stages were already reset.
+    {
+        let active = state.get_side(side_ref).get_active();
+        if active.base_ability == Abilities::IMPOSTER && active.moves.m0.id != Choices::TRANSFORM {
+            set_moves(state, side_ref, DITTO_MOVES, instructions);
+            // The base-stat table covers only form changers, so Ditto's own stats come from its flat 48s here.
+            let active = state.get_side(side_ref).get_active();
+            if active.id == PokemonName::DITTO {
+                let level = active.level as i32;
+                let own = |ev: u8| (((2 * 48 + 31 + ev as i32 / 4) * level) / 100 + 5) as i16;
+                let evs = active.evs;
+                let target = [own(evs.1), own(evs.2), own(evs.3), own(evs.4), own(evs.5)];
+                let current = [
+                    active.attack,
+                    active.defense,
+                    active.special_attack,
+                    active.special_defense,
+                    active.speed,
+                ];
+                for (i, (new, old)) in target.iter().zip(current).enumerate() {
+                    if *new == old {
+                        continue;
+                    }
+                    let change = ChangeStatInstruction {
+                        side_ref: *side_ref,
+                        amount: new - old,
+                    };
+                    instructions.instruction_list.push(match i {
+                        0 => Instruction::ChangeAttack(change),
+                        1 => Instruction::ChangeDefense(change),
+                        2 => Instruction::ChangeSpecialAttack(change),
+                        3 => Instruction::ChangeSpecialDefense(change),
+                        _ => Instruction::ChangeSpeed(change),
+                    });
+                    match i {
+                        0 => active.attack = *new,
+                        1 => active.defense = *new,
+                        2 => active.special_attack = *new,
+                        3 => active.special_defense = *new,
+                        _ => active.speed = *new,
+                    }
+                }
+            }
+        }
+    }
+
     let (attacking_side, defending_side) = state.get_both_sides(side_ref);
     let active_pkmn = attacking_side.get_active();
     if defending_side.get_active_immutable().ability == Abilities::NEUTRALIZINGGAS {
@@ -1406,6 +1646,12 @@ pub fn ability_on_switch_in(
     let active_pkmn = attacking_side.get_active();
     let defending_pkmn = defending_side.get_active_immutable();
     if defending_pkmn.ability == Abilities::NEUTRALIZINGGAS {
+        return;
+    }
+
+    // Imposter becomes a copy of the target; the copied ability's own switch-in effect does not fire.
+    if active_pkmn.ability == Abilities::IMPOSTER {
+        imposter_transform(state, side_ref, instructions);
         return;
     }
 

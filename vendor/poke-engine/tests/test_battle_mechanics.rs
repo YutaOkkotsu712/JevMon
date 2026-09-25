@@ -22628,3 +22628,115 @@ fn test_revival_blessing_does_nothing_without_a_fainted_teammate_or_with_only_pl
     }];
     assert_eq!(expected_instructions, vec_of_instructions);
 }
+
+fn imposter_state() -> State {
+    let mut state = State::default();
+    // Side two: a Skeledirge at +3 Special Attack, the position where a Ditto was left on the bench (2687491039).
+    let target = state.side_two.get_active();
+    target.id = PokemonName::SKELEDIRGE;
+    target.types = (PokemonType::FIRE, PokemonType::GHOST);
+    target.base_types = (PokemonType::FIRE, PokemonType::GHOST);
+    target.ability = Abilities::UNAWARE;
+    target.attack = 180;
+    target.defense = 230;
+    target.special_attack = 260;
+    target.special_defense = 200;
+    target.speed = 150;
+    target.replace_move(PokemonMoveIndex::M0, Choices::TORCHSONG);
+    target.replace_move(PokemonMoveIndex::M1, Choices::SHADOWBALL);
+    target.replace_move(PokemonMoveIndex::M2, Choices::SLACKOFF);
+    target.replace_move(PokemonMoveIndex::M3, Choices::NONE);
+    state.side_two.special_attack_boost = 3;
+    let ditto = &mut state.side_one.pokemon[PokemonIndex::P1];
+    ditto.id = PokemonName::DITTO;
+    ditto.types = (PokemonType::NORMAL, PokemonType::TYPELESS);
+    ditto.base_types = (PokemonType::NORMAL, PokemonType::TYPELESS);
+    ditto.ability = Abilities::IMPOSTER;
+    ditto.base_ability = Abilities::IMPOSTER;
+    ditto.replace_move(PokemonMoveIndex::M0, Choices::TRANSFORM);
+    ditto.replace_move(PokemonMoveIndex::M1, Choices::NONE);
+    ditto.replace_move(PokemonMoveIndex::M2, Choices::NONE);
+    ditto.replace_move(PokemonMoveIndex::M3, Choices::NONE);
+    ditto.moves.m0.pp = 16;
+    state
+}
+
+#[test]
+fn test_imposter_copies_the_target_and_its_boosts_on_entry() {
+    let mut state = imposter_state();
+    let ditto_hp = state.side_one.pokemon[PokemonIndex::P1].hp;
+    let instructions = generate_instructions_with_state_assertion(
+        &mut state,
+        &MoveChoice::Switch(PokemonIndex::P1),
+        &MoveChoice::None,
+    );
+    assert_eq!(1, instructions.len());
+    state.apply_instructions(&instructions[0].instruction_list);
+    let ditto = state.side_one.get_active_immutable();
+    assert_eq!(PokemonIndex::P1, state.side_one.active_index);
+    assert_eq!((PokemonType::FIRE, PokemonType::GHOST), ditto.types);
+    assert_eq!(Abilities::UNAWARE, ditto.ability);
+    assert_eq!(Abilities::IMPOSTER, ditto.base_ability);
+    assert_eq!((180, 230, 260, 200, 150), (ditto.attack, ditto.defense, ditto.special_attack, ditto.special_defense, ditto.speed));
+    assert_eq!(ditto_hp, ditto.hp, "HP stays Ditto's own");
+    assert_eq!(Choices::TORCHSONG, ditto.moves.m0.id);
+    assert_eq!(5, ditto.moves.m0.pp);
+    assert_eq!(Choices::SHADOWBALL, ditto.moves.m1.choice.move_id);
+    assert_eq!(Choices::NONE, ditto.moves.m3.id);
+    assert_eq!(3, state.side_one.special_attack_boost, "the +3 comes with the copy");
+    assert!(state.side_one.volatile_statuses.contains(&PokemonVolatileStatus::TYPECHANGE));
+}
+
+#[test]
+fn test_imposter_turns_back_into_ditto_on_switch_out() {
+    let mut state = imposter_state();
+    let before = state.side_one.pokemon[PokemonIndex::P1].clone();
+    let entry = generate_instructions_with_state_assertion(
+        &mut state,
+        &MoveChoice::Switch(PokemonIndex::P1),
+        &MoveChoice::None,
+    );
+    state.apply_instructions(&entry[0].instruction_list);
+    let exit = generate_instructions_with_state_assertion(
+        &mut state,
+        &MoveChoice::Switch(PokemonIndex::P0),
+        &MoveChoice::None,
+    );
+    assert_eq!(1, exit.len());
+    state.apply_instructions(&exit[0].instruction_list);
+    let ditto = &state.side_one.pokemon[PokemonIndex::P1];
+    assert_eq!(before.types, ditto.types);
+    assert_eq!(Abilities::IMPOSTER, ditto.ability);
+    assert_eq!(Choices::TRANSFORM, ditto.moves.m0.id);
+    assert_eq!(Choices::NONE, ditto.moves.m1.id);
+    // Level 100 with the default 85 EVs: ((96 + 31 + 21) * 100) / 100 + 5 = 153 in every stat but HP.
+    assert_eq!((153, 153, 153, 153, 153), (ditto.attack, ditto.defense, ditto.special_attack, ditto.special_defense, ditto.speed));
+    assert_eq!(0, state.side_one.special_attack_boost);
+    // Coming back in copies whatever is out then.
+    let again = generate_instructions_with_state_assertion(
+        &mut state,
+        &MoveChoice::Switch(PokemonIndex::P1),
+        &MoveChoice::None,
+    );
+    state.apply_instructions(&again[0].instruction_list);
+    assert_eq!(Choices::TORCHSONG, state.side_one.get_active_immutable().moves.m0.id);
+}
+
+#[test]
+fn test_imposter_fails_into_a_substitute() {
+    let mut state = imposter_state();
+    state
+        .side_two
+        .volatile_statuses
+        .insert(PokemonVolatileStatus::SUBSTITUTE);
+    let instructions = generate_instructions_with_state_assertion(
+        &mut state,
+        &MoveChoice::Switch(PokemonIndex::P1),
+        &MoveChoice::None,
+    );
+    state.apply_instructions(&instructions[0].instruction_list);
+    let ditto = state.side_one.get_active_immutable();
+    assert_eq!(Choices::TRANSFORM, ditto.moves.m0.id);
+    assert_eq!(Abilities::IMPOSTER, ditto.ability);
+    assert_eq!(0, state.side_one.special_attack_boost);
+}

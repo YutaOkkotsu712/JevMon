@@ -66,6 +66,7 @@ pub enum Instruction {
     ChangeSpeed(ChangeStatInstruction),
     DisableMove(DisableMoveInstruction),
     EnableMove(EnableMoveInstruction),
+    ChangeMove(ChangeMoveInstruction),
     ChangeWish(ChangeWishInstruction),
     DecrementWish(DecrementWishInstruction),
     SetFutureSight(SetFutureSightInstruction),
@@ -216,6 +217,13 @@ impl fmt::Debug for Instruction {
             }
             Instruction::DisableMove(d) => {
                 write!(f, "DisableMove {:?}: {:?}", d.side_ref, d.move_index)
+            }
+            Instruction::ChangeMove(c) => {
+                write!(
+                    f,
+                    "ChangeMove {:?} {:?}: {}",
+                    c.side_ref, c.move_index, c.move_change
+                )
             }
             Instruction::EnableMove(e) => {
                 write!(f, "EnableMove {:?}: {:?}", e.side_ref, e.move_index)
@@ -450,6 +458,15 @@ pub struct EnableMoveInstruction {
 pub struct DisableMoveInstruction {
     pub side_ref: SideReference,
     pub move_index: PokemonMoveIndex,
+}
+
+/// Replaces one move of the active Pokémon, as Imposter does. Like ChangeAbility it carries the difference between the
+/// two ids, which keeps the instruction at six bytes; its PP changes with a DecrementPP beside it.
+#[derive(Debug, PartialEq, Clone)]
+pub struct ChangeMoveInstruction {
+    pub side_ref: SideReference,
+    pub move_index: PokemonMoveIndex,
+    pub move_change: i16,
 }
 
 #[derive(Debug, PartialEq, Clone)]

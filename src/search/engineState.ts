@@ -93,6 +93,11 @@ function pokemon(p: PokemonState, set: Candidate | undefined, known: boolean, us
   const maxHP = p.exactHP?.max ?? built.maxHP();
   const hp = p.fainted ? 0 : p.exactHP?.current ?? Math.max(1, Math.round((p.hpPercent ?? 100) / 100 * maxHP));
   const ability = p.abilitySuppressed ? 'NONE' : upper(p.ability ?? set?.ability) || 'NONE';
+  // A Ditto is Imposter underneath whatever it copied: the engine reverts to the base ability on switching out, and
+  // Imposter turns it back into a Ditto there and copies whatever is out when it returns.
+  const imposter = !p.abilitySuppressed && canonicalSpecies(p.species) === 'Ditto' &&
+    [p.baseAbility, p.ability, set?.ability].some(a => id(a ?? '') === 'imposter');
+  const baseAbility = imposter ? 'IMPOSTER' : ability;
   const item = upper(p.item ?? set?.item) || 'NONE';
   const moves = (copied ?? moveNames(p, set, known)).map(m => {
     const move = dex.moves.get(m);
@@ -103,7 +108,7 @@ function pokemon(p: PokemonState, set: Candidate | undefined, known: boolean, us
   while (moves.length < 4) moves.push('NONE;true;0');
   const evs = set?.evs ? [set.evs.hp, set.evs.atk, set.evs.def, set.evs.spa, set.evs.spd, set.evs.spe].join(';') : '';
   const stats = built.rawStats;
-  return [upper(species.name), levelOf(p), ...types, ...types, hp, maxHP, ability, ability, item, 'SERIOUS', evs,
+  return [upper(species.name), levelOf(p), ...types, ...types, hp, maxHP, ability, baseAbility, item, 'SERIOUS', evs,
     stats.atk, stats.def, stats.spa, stats.spd, stats.spe, status[p.status ?? ''] ?? 'None',
     // The engine's Rest counter starts at 3 and wakes on 1, one step per turn spent asleep.
     p.sleepFromRest ? Math.max(1, 3 - (p.sleepTurns ?? 0)) : 0, p.sleepTurns ?? 0, species.weightkg,

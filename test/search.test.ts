@@ -405,4 +405,5 @@ test('a transformed Pokémon reaches the search as its copy: species, types and 
   assert.match(mon, /PRECIPICEBLADES;false;5/, 'the copied moves, each with 5 PP');
   assert.doesNotMatch(mon, /TRANSFORM/, 'not the Ditto\'s own moveset');
   assert.equal((mon.match(/PRECIPICEBLADES/g) ?? []).length, 1, 'a move copied and then used is written once');
+  assert.equal(mon.split(',')[9], 'IMPOSTER', 'Imposter underneath, so the engine turns it back into a Ditto when it leaves');
 });

@@ -1197,7 +1197,7 @@ type Boosts = Partial<Record<string, number>> | undefined | null;
  *
  * `cases` are the knockout's worst rolls against each sampled set and Tera, as [damage, their HP] in percent.
  */
-function beforeOurHit(s: BattleState, d: Move, ko: Move, me: PokemonState, foe: PokemonState, foeSide: SideId, cases: [number, number][]): 'stops' | { stills: number } | null {
+function beforeOurHit(s: BattleState, d: Move, ko: Move, me: PokemonState, foe: PokemonState, foeSide: SideId, cases: [number, number][], grace = 1): 'stops' | { stills: number } | null {
   const holds = (factor: number) => cases.every(([min, hp]) => min * factor >= hp);
   const survivesHeal = (heal: number) => cases.every(([min, hp]) => min >= Math.min(100, hp + heal));
   const ourAbility = me.abilitySuppressed ? '' : id(me.ability ?? ''), ourItem = id(me.item ?? '');
@@ -1267,7 +1267,8 @@ function beforeOurHit(s: BattleState, d: Move, ko: Move, me: PokemonState, foe: 
   let still = 0;
   for (const x of [d.secondary, ...(d.secondaries ?? [])]) {
     if (!x) continue;
-    const chance = x.chance ?? 100;
+    // Serene Grace doubles every secondary chance: Jirachi's Iron Head flinches 60% of the time.
+    const chance = Math.min(100, (x.chance ?? 100) * grace);
     // A burn as likely as Scald's counts; a certain stat change counts; any chance of not moving at all stills us.
     if (x.status === 'brn' && chance >= 30 && statusOnUs('brn') === 'stops') return 'stops';
     if ((chance >= 100 && lowers(x.boosts)) || (chance >= 50 && raises(x.self?.boosts))) return 'stops';
@@ -1337,6 +1338,8 @@ export function freeKnockoutPassedUp(input: DecisionInput) {
     return all.some(p => p === null) ? null : Math.max(...(all as number[]));
   };
   const tieOurs = speedSummary(s, me).ifEqualPriority === 'ours-first';
+  const grace = !foe.abilitySuppressed && (id(foe.ability ?? '') === 'serenegrace' ||
+    (!foe.ability && inferOpponent(foe).candidates.some(c => id(c.ability ?? '') === 'serenegrace'))) ? 2 : 1;
   const judged = input.legalActions.filter(a => a.kind === 'move' && !a.command.endsWith(' terastallize')).map(a => ({ a, m: moveOf(a) }))
     // A knockout that fails on the opponent's choice (Sucker Punch, Thunderclap, Upper Hand), that charges first, that
     // certainly fails, or that takes us down with it (Explosion, Mind Blown) is no knockout to insist on.
@@ -1353,7 +1356,7 @@ export function freeKnockoutPassedUp(input: DecisionInput) {
       const before = first ? [] : foeMoves.filter(f => {
         const p = theirPriority(f.name);
         return p === null || p > order.ourPriority! || (p === order.ourPriority && !tieOurs);
-      }).map(f => ({ move: f, priority: theirPriority(f.name), effect: beforeOurHit(s, f, m, me, foe, foeSide, worst) }));
+      }).map(f => ({ move: f, priority: theirPriority(f.name), effect: beforeOurHit(s, f, m, me, foe, foeSide, worst, grace) }));
       if (before.some(b => b.effect === 'stops')) return null;
       return { action: a, move: m, order: order.order, ourPriority: order.ourPriority, before };
     }).filter(x => !!x);
