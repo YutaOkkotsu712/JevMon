@@ -759,6 +759,10 @@ $('r-present').onclick = () => (stageOn ? closeStage() : openStage());
 
 /* ---------- presentation stage (for recording) ---------- */
 let stageOn = false, idleTimer = null, lastDecisionShown = -1;
+// H hides the opponent's username on the stage, for recordings shared publicly: they did not agree to appear in one.
+let anon = new URLSearchParams(location.search).get('anon') === '1';
+function theirName(them) { return anon ? 'Opponent' : (them && them.name) || ''; }
+function scrub(text, them) { const n = them && them.name; return anon && n ? String(text).split(n).join('Opponent') : String(text); }
 function openStage() {
   if (!R) return;
   stageOn = true; $('stage').hidden = false; lastDecisionShown = -1;
@@ -780,9 +784,10 @@ document.addEventListener('mousemove', () => { if (stageOn) wake(); });
 function hpCard(s, isUs) {
   if (!s) return '';
   const a = s.active;
+  const name = isUs ? (s.name || '') : theirName(s);
   const left = s.teamSize ? Math.max(0, s.teamSize - s.team.filter(p => p.fainted).length) : null;
   const boosts = a ? Object.entries(a.boosts || {}).map(([k, v]) => '<span class="chip ' + (v > 0 ? 'up' : 'down') + '">' + (STAT[k] || esc(k)) + ' ' + (v > 0 ? '+' : '') + v + '</span>').join('') : '';
-  return '<div class="hpcard ' + (isUs ? 'us' : 'them') + '"><div class="o2">' + esc(s.name || '') + (s.rating ? ' · ' + esc(s.rating) : '') + (left !== null ? ' · ' + left + ' left' : '') + '</div>' +
+  return '<div class="hpcard ' + (isUs ? 'us' : 'them') + '"><div class="o2">' + esc(name) + (s.rating ? ' · ' + esc(s.rating) : '') + (left !== null ? ' · ' + left + ' left' : '') + '</div>' +
     (a ? '<div class="n">' + esc(a.species) + (a.status ? '<span class="st ' + esc(a.status) + '">' + esc(a.status) + '</span>' : '') + (a.tera ? '<span class="chip tera">Tera ' + esc(a.tera) + '</span>' : '') + '</div>' +
       '<div class="hpwrap"><div class="hpbar"><i style="width:' + (a.fainted ? 0 : a.hp) + '%;background:' + hpColor(a.hp) + '"></i></div><div class="hpn">' + (a.fainted ? 'fnt' : a.hp + '%') + '</div></div>' +
       (boosts ? '<div class="chips">' + boosts + '</div>' : '') : '') +
@@ -810,16 +815,16 @@ function renderStage(fresh) {
   const who = e && e.side ? sideClass(e.side) : '';
   const done = R.at >= R.steps.length && R.final;
   const splash = done ? '<div class="splash ' + esc(R.final.outcome) + '"><div class="w1">' + (R.final.outcome === 'win' ? 'VICTORY' : R.final.outcome === 'loss' ? 'DEFEAT' : 'TIE') + '</div>' +
-    '<div class="w2">vs ' + esc(R.final.opponent || '') + ' · knockouts ' + R.final.knockouts.dealt + '–' + R.final.knockouts.taken + (R.final.rating ? ' · rating ' + R.final.rating.before + ' → ' + R.final.rating.after + ' (' + (R.final.rating.after >= R.final.rating.before ? '+' : '') + (R.final.rating.after - R.final.rating.before) + ')' : '') + '</div></div>' : '';
-  const html = '<div class="top"><span class="vs"><span class="u">' + esc(us ? us.name : '') + '</span> vs <span class="t">' + esc(them ? them.name : '') + '</span></span><span class="meta2">Gen 9 Random Battle · Pokémon Showdown ladder</span></div>' +
+    '<div class="w2">vs ' + esc(anon ? 'Opponent' : R.final.opponent || '') + ' · knockouts ' + R.final.knockouts.dealt + '–' + R.final.knockouts.taken + (R.final.rating ? ' · rating ' + R.final.rating.before + ' → ' + R.final.rating.after + ' (' + (R.final.rating.after >= R.final.rating.before ? '+' : '') + (R.final.rating.after - R.final.rating.before) + ')' : '') + '</div></div>' : '';
+  const html = '<div class="top"><span class="vs"><span class="u">' + esc(us ? us.name : '') + '</span> vs <span class="t">' + esc(theirName(them)) + '</span></span><span class="meta2">Gen 9 Random Battle · Pokémon Showdown ladder</span></div>' +
     '<div class="sturn">' + (a ? 'TURN ' + a.turn : '') + '</div>' +
     '<div class="field"><div class="ground g1"></div><div class="ground g2"></div>' +
     (them && them.active ? spriteImg(them.active.sprite, false, 'bsprite them' + (them.active.fainted ? ' gone' : '')) : '') +
     (us && us.active ? spriteImg(us.active.sprite, true, 'bsprite us' + (us.active.fainted ? ' gone' : '')) : '') +
     hpCard(them, false) + hpCard(us, true) + '</div>' + thinkCard(d) +
-    '<div class="caption' + (fresh.length ? ' pop' : '') + '">' + (e ? '<span class="who ' + who + '">' + (who === 'us' ? esc(us ? us.name : 'us') : who === 'them' ? esc(them ? them.name : 'them') : '') + '</span>' + esc(e.text) : '') + '</div>' +
+    '<div class="caption' + (fresh.length ? ' pop' : '') + '">' + (e ? '<span class="who ' + who + '">' + (who === 'us' ? esc(us ? us.name : 'us') : who === 'them' ? esc(theirName(them)) : '') + '</span>' + esc(scrub(e.text, them)) : '') + '</div>' +
     '<div class="mark">jevmon · an LLM + search Pokémon bot</div>' + splash +
-    '<div class="sctl"><button id="s-play">' + (playing ? '⏸' : '▶') + '</button><button id="s-prev">◀</button><button id="s-next">▶|</button><button id="s-exit">Exit</button><span class="note">space · ← → · P</span></div>';
+    '<div class="sctl"><button id="s-play">' + (playing ? '⏸' : '▶') + '</button><button id="s-prev">◀</button><button id="s-next">▶|</button><button id="s-anon">' + (anon ? 'Show names' : 'Hide opponent') + '</button><button id="s-exit">Exit</button><span class="note">space · ← → · H · P</span></div>';
   // Sprites keep their element when the Pokémon is the same, so a hit animates rather than reloads.
   const stage = $('stage');
   const keep = {};
@@ -840,6 +845,7 @@ function renderStage(fresh) {
   $('s-prev').onclick = () => $('r-prev').onclick();
   $('s-next').onclick = () => $('r-next').onclick();
   $('s-exit').onclick = closeStage;
+  $('s-anon').onclick = () => { anon = !anon; renderStage([]); };
   if (fresh.length) animate(fresh, cls => '#stage .bsprite.' + cls);
 }
 document.addEventListener('keydown', ev => {
@@ -848,6 +854,7 @@ document.addEventListener('keydown', ev => {
   else if (ev.key === 'ArrowRight') { ev.preventDefault(); $('r-next').onclick(); }
   else if (ev.key === 'ArrowLeft') { ev.preventDefault(); $('r-prev').onclick(); }
   else if (ev.key === 'p' || ev.key === 'P') { stageOn ? closeStage() : openStage(); }
+  else if ((ev.key === 'h' || ev.key === 'H') && stageOn) { anon = !anon; renderStage([]); }
   else if (ev.key === 'Escape' && stageOn) closeStage();
 });
 
