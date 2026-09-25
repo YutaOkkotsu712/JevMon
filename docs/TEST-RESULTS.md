@@ -2032,3 +2032,20 @@ Tests: 408 pass.
   - They agree with the known overvaluation of boosts and sleep.
   - Written to `logs/weights/fitted-bench.txt`. Not deployed: predicting results better is not playing better, so a
     bench of fitted against current weights has to decide (`SearchOptions.weights` per side).
+
+## Stretching the Jev credit (2026-09-25)
+
+- About $0.94 of the $5 was left: roughly 60 ladder games at 12,600 input tokens a call (median payload 32.7 KB) and
+  28 calls a game.
+- Jev is no longer asked in two cases:
+  - When there is one legal action (2.8% of logged calls).
+  - In blend, when the search puts at least `JEV_SKIP_AT_SEARCH_SHARE` (default 0.7) of its visits on one action (18.1%
+    of calls).
+- At 0.7 of the visits the blend cannot be turned by Jev: another action has at most 0.3, and Jev would need a lead of
+  over 0.93 to overcome it. The near-tie rule cannot apply either. Only a guard's fallback order changes, and it now
+  uses the search's ranking.
+- Across 7,555 logged blend decisions, those turns played the search's choice 96.1% of the time. The saving is about
+  21% of calls, roughly 60 → 78 games on the remaining credit.
+- Decisions record `providerSkipped`, and the live view shows "Jev: not asked".
+- One new test. It covers a decisive search, a split search that still asks, 0 turning the skip off, and a single legal
+  action. 422 pass.

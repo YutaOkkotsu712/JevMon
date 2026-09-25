@@ -82,6 +82,7 @@ export function decisionView(record: DecisionRecord, s: BattleState, room: strin
     decidedBy: record.decidedBy ?? (record.search ? 'search' : 'provider'),
     jevPick: labelOf(jevPick), searchPick: labelOf(searchPick),
     agreed: !!jevPick && jevPick === searchPick,
+    ...(record.providerSkipped ? { jevSkipped: record.providerSkipped } : {}),
     ...(record.nearTie ? { nearTie: { searchBest: labelOf(record.nearTie.searchBest), chosen: labelOf(record.nearTie.chosen) } } : {}),
     ...(record.teraHeldBack ? { teraHeldBack: { from: labelOf(record.teraHeldBack.from), to: labelOf(record.teraHeldBack.to) } } : {}),
     ...(record.pivotInsteadOfSwitch ? { pivot: { from: labelOf(record.pivotInsteadOfSwitch.from), to: labelOf(record.pivotInsteadOfSwitch.to) } } : {}),

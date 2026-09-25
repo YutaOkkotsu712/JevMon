@@ -51,7 +51,7 @@ function main(): void {
   const search = engineReady ? { mode: config.search.mode as 'advise' | 'blend',
     run: (state: BattleState, actions: Parameters<typeof searchWorlds>[1]) => searchWorlds(state, actions, searchOptions(config.search, lanes)),
     timeoutMs: searchTimeoutMs(config.search, lanes), weight: config.search.weight,
-    overrideMargin: config.search.overrideMargin, inPayload: config.search.inPayload } : undefined;
+    overrideMargin: config.search.overrideMargin, inPayload: config.search.inPayload, skipProviderAtShare: config.search.skipProviderAtShare } : undefined;
   if (search) log(`search: ${config.search.mode}, ${config.search.worlds} worlds of ${config.search.msPerWorld}ms on ${lanes} lanes` +
     (config.search.extraWorlds ? `, ${config.search.extraWorlds} more when the top two are within ${config.search.closeRatio}` : '') +
     (config.search.endgamePokemon ? `, endgames of ${config.search.endgamePokemon} or fewer solved (${config.search.endgameWorlds} worlds of ${config.search.endgameMsPerWorld}ms)` : '') +

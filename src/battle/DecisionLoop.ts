@@ -29,6 +29,8 @@ export interface DecisionRecord {
   teraHeldBack?: { from: string; to: string };
   /** Set when a voluntary switch was played as the faster damaging pivot instead. */
   pivotInsteadOfSwitch?: { from: string; to: string; reason: string };
+  /** Set when the provider was not asked: one legal action, or a search sure enough that the blend follows it anyway. */
+  providerSkipped?: 'single-action' | 'search-decisive';
 }
 export type SearchMode = 'advise' | 'blend';
 export type SearchResult = { values: Record<string, SearchValue>; worldsSearched: number; msTotal: number; solver?: 'endgame'; extended?: true } | null;
@@ -57,7 +59,12 @@ export interface DecisionLoopOptions {
      */
     overrideMargin?: number;
     /** Whether the provider sees the search's values; in blend, leaving them out keeps the two opinions independent. */
-    inPayload?: boolean };
+    inPayload?: boolean;
+    /**
+     * In blend, the visit share at which the provider is not asked at all: with that much of the search on one action the
+     * blend follows it whatever the provider says, and each call costs credit. 0 asks every time.
+     */
+    skipProviderAtShare?: number };
 }
 /** Every runtime guard, in the order applied; shared with scripts/preflight.mjs so the check runs exactly what plays. */
 export const GUARDS = [lethalPriority, futileProtect, encoredIntoNothing, lockedIntoImmunity, lockedAndLosing, redundantTera, needlessGamble, preserveSoleDefensiveAnswer, baitedCrash, statusThatHelpsThem, healingOverAKnockout, outhealed, recoilIntoRecovery, futileUnawareSetup, asleepWhileTheyBoost, setupIntoPhazer, setupRaceLost, freeKnockoutPassedUp, healAtFullHP, chargeWontFire, seededAndLosing, setupIntoSleep, sleeperThrownAway, doomedReplacement, futileSubstitute, statusIntoKnockout, destinyBondTrade, repeatedSelfEffect, certainlyFails, endeavorTooEarly, pickedOffOnArrival, pivotIntoKnockout];
@@ -206,9 +213,17 @@ export class DecisionLoop {
     }
     let chosen: unknown, fallback = false;
     let providerResult: DecisionResult | undefined;
+    // Each provider call spends credit. Two turns are settled without one: a single legal action, and a search so sure
+    // of one action that the blend follows it whatever the provider says. Across 7,555 logged blend decisions, those
+    // with 70% of the visits on one action played it 96% of the time, the rest through a guard's fallback.
+    const topShare = search ? Math.max(0, ...Object.values(search.values).map(v => v.visitShare ?? 0)) : 0;
+    const skipAt = this.options.search?.skipProviderAtShare ?? 0;
+    const providerSkipped = actions.length === 1 ? 'single-action' as const
+      : this.options.search?.mode === 'blend' && search && skipAt > 0 && topShare >= skipAt ? 'search-decisive' as const : undefined;
+    if (providerSkipped === 'single-action') chosen = actions[0]!.id;
     const controller = new AbortController();
     this.providerAbort = controller;
-    try {
+    if (!providerSkipped) try {
       const result = await Promise.race([
         this.provider.chooseAction({ state: structuredClone(this.options.state()), legalActions: structuredClone(actions), request: structuredClone(request),
           ...(search && this.options.search?.inPayload !== false ? { search: search.values } : {}) }, { signal: controller.signal }),
@@ -326,6 +341,7 @@ export class DecisionLoop {
       ...(nearTie ? { nearTie } : {}),
       ...(teraHeldBack ? { teraHeldBack } : {}),
       ...(pivoted ? { pivotInsteadOfSwitch: pivoted } : {}),
+      ...(providerSkipped ? { providerSkipped } : {}),
       ...(this.provider.getMetrics ? { providerMetrics: this.provider.getMetrics() } : {}) });
   }
 }

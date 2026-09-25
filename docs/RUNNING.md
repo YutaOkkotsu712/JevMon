@@ -308,7 +308,13 @@ SEARCH_WEIGHT=0.7      # in blend, the search's share of the choice against Jev'
 SEARCH_WORLDS=16
 SEARCH_MS_PER_WORLD=200
 SEARCH_IN_PAYLOAD=     # unset: Jev sees the search only in advise mode; true shows it in blend too, to compare
+JEV_SKIP_AT_SEARCH_SHARE=0.7  # in blend, Jev is not asked when the search puts this share of its visits on one action; 0 always asks
 ```
+
+Jev is also not asked when there is only one legal action. With 70% of the search's visits on one action the blend
+follows the search whatever Jev says: across 7,555 logged blend decisions those turns played the search's choice 96%
+of the time, the rest through a guard's fallback. Together the two skips save about a fifth of the calls. Each such
+decision records `providerSkipped`, and the live view shows "Jev: not asked".
 
 In blend, Jev's payload leaves the search out by default. The search is mixed into the choice afterwards, so also
 showing it to Jev counted it twice and made Jev's opinion a copy of it. Each decision records `search.inPayload`,

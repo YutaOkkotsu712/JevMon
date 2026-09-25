@@ -418,6 +418,7 @@ function howRows(d) {
   if (!h) return '';
   const rows = [];
   if (h.jevPick) rows.push(['Jev picked', '<span class="j">' + esc(h.jevPick) + '</span>']);
+  if (h.jevSkipped) rows.push(['Jev', h.jevSkipped === 'single-action' ? 'not asked: only one legal action' : 'not asked: the search was sure enough that the blend would follow it (saves credit)']);
   if (h.searchPick) rows.push(['Search picked', '<span class="s">' + esc(h.searchPick) + '</span>']);
   rows.push(['Decided by', esc(DECIDED[h.decidedBy] || h.decidedBy) + (h.agreed ? ' — they agreed' : h.jevPick && h.searchPick ? ' — they disagreed' : '')]);
   if (h.nearTie) rows.push(['Near tie', 'the search\'s ' + esc(h.nearTie.searchBest) + ' was too close to call, so Jev\'s ranking chose ' + esc(h.nearTie.chosen)]);

@@ -108,6 +108,11 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env) {
     weight: (() => { const raw = env.SEARCH_WEIGHT?.trim(), value = raw ? Number(raw) : 0.5;
       if (!Number.isFinite(value) || value < 0 || value > 1) throw new Error('SEARCH_WEIGHT must be between 0 and 1');
       return value; })(),
+    // In blend, the search's visit share on one action at which the provider is not asked: the blend would follow the
+    // search anyway, and each call costs credit. 0 asks every time.
+    skipProviderAtShare: (() => { const raw = env.JEV_SKIP_AT_SEARCH_SHARE?.trim(), value = raw ? Number(raw) : 0.7;
+      if (!Number.isFinite(value) || value < 0 || value > 1) throw new Error('JEV_SKIP_AT_SEARCH_SHARE must be between 0 and 1');
+      return value; })(),
     // In blend, the lead in the search's mean score it needs before overruling the provider; below it, the provider's choice stands.
     overrideMargin: (() => { const raw = env.SEARCH_OVERRIDE_MARGIN?.trim(), value = raw ? Number(raw) : 0.03;
       if (!Number.isFinite(value) || value < 0 || value > 1) throw new Error('SEARCH_OVERRIDE_MARGIN must be between 0 and 1');

@@ -268,6 +268,48 @@ test('in blend the provider does not see the search it is blended with, unless a
   assert.equal(readConfig({ SEARCH_MODE: 'blend', SEARCH_IN_PAYLOAD: 'true' }).search.inPayload, true);
 });
 
+test('the provider is not asked when the search already decides the move, which saves its credit', async () => {
+  const { b, actions } = setup();
+  let calls = 0;
+  const provider: DecisionProvider = { async chooseAction(): Promise<DecisionResult> {
+    calls++;
+    return { chosenAction: actions.at(-1)!.id, provider: 'jev', confidence: 0.5, probabilities: Object.fromEntries(actions.map(a => [a.id, a === actions.at(-1) ? 0.9 : 0.1 / (actions.length - 1)])) };
+  } };
+  const run = async (top: number, skipProviderAtShare: number) => {
+    const values = Object.fromEntries(actions.map((a, i) => [a.id, { visitShare: i === 0 ? top : (1 - top) / (actions.length - 1), meanScore: i === 0 ? 0.7 : 0.4 }]));
+    const records: DecisionRecord[] = [];
+    const loop = new DecisionLoop({ room, username: 'Test Bot', dryRun: true, provider, send: () => true, state: () => b.state,
+      onStatus: () => {}, onDecision: r => records.push(r),
+      search: { mode: 'blend', weight: 0.7, overrideMargin: 0.03, skipProviderAtShare, timeoutMs: 1000, run: async () => ({ values, worldsSearched: 16, msTotal: 5 }) } });
+    loop.request(JSON.stringify(b.payload(3, 200, 0)));
+    await new Promise(resolve => setTimeout(resolve, 30));
+    loop.stop();
+    return records[0]!;
+  };
+  const sure = await run(0.8, 0.7);
+  assert.equal(calls, 0, 'with 80% of the visits on one action the blend follows the search anyway');
+  assert.equal(sure.providerSkipped, 'search-decisive');
+  assert.equal(sure.selectedAction.id, actions[0]!.id);
+  assert.equal(sure.decidedBy, 'search');
+  const open = await run(0.5, 0.7);
+  assert.equal(calls, 1, 'a split search still asks');
+  assert.equal(open.providerSkipped, undefined);
+  await run(0.8, 0);
+  assert.equal(calls, 2, '0 turns the saving off');
+  // One legal action: a lone Pokémon with one move left to use.
+  const lone = battle([ours('Terrakion', 79, ['Close Combat'], 'Justified', 'Choice Band', 'Ground')], 'Sinistcha');
+  const only: DecisionRecord[] = [];
+  const single = new DecisionLoop({ room, username: 'Test Bot', dryRun: true, provider, send: () => true, state: () => lone.state,
+    onStatus: () => {}, onDecision: r => only.push(r) });
+  single.request(JSON.stringify(lone.payload(3, 200, 0)));
+  await new Promise(resolve => setTimeout(resolve, 30));
+  single.stop();
+  assert.equal(calls, 2, 'nothing to choose, nothing to ask');
+  assert.deepEqual([only[0]!.providerSkipped, only[0]!.selectedAction.label, only[0]!.fallback], ['single-action', 'Close Combat', false]);
+  assert.equal(readConfig({ SEARCH_MODE: 'blend' }).search.skipProviderAtShare, 0.7);
+  assert.equal(readConfig({ SEARCH_MODE: 'blend', JEV_SKIP_AT_SEARCH_SHARE: '0' }).search.skipProviderAtShare, 0);
+});
+
 test('a near tie cannot flip the kind of action that both the provider and the search chose', () => {
   // 2687072937 turn 7: Jev wanted a switch (Stantler) and so did the search (Victreebel); the old rule played Freeze-Dry.
   const actions = [
