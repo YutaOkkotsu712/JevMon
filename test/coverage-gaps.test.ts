@@ -570,6 +570,24 @@ test('a healthy Pokémon is not staked on a miss when a switch-in takes the knoc
   assert.equal(needlessGamble(input(40)).size, 0, 'below half HP, the active is a fair price for a free switch-in');
 });
 
+test('a likely knockout is not blocked for a switch that costs more than the Pokémon it risks', () => {
+  // 2687507386: Cinccino's Tail Slap knocked a Toxtricity out 84% of the time and moved first; Jev and the search both
+  // chose it (the search at 0.96), and the guard sent Ting-Lu into two 35% hits instead.
+  const roster = [ours('Jumpluff', 87, ['Acrobatics', 'Strength Sap', 'U-turn', 'Sleep Powder'], 'Infiltrator', '', 'Steel'),
+    ours('Wyrdeer', 87, ['Body Slam', 'Psychic Noise', 'Megahorn', 'Earthquake'], 'Intimidate', 'Assault Vest', 'Ground')];
+  const skippedAt = (foePercent: number) => {
+    const b = battle(roster, 'Volcanion', 79);
+    const at = (percent: number) => Math.round(roster[0]!.maxHP * percent / 100);
+    b.feed('|move|p2a: Foe|Flamethrower|p1a: Jumpluff'); b.feed(`|-damage|p1a: Jumpluff|${at(68)}/${roster[0]!.maxHP}`);
+    b.feed(`|-damage|p2a: Foe|${foePercent}/100`); b.feed(b.request(5, at(68))); b.feed('|turn|5');
+    const request = parseChoiceRequest(JSON.stringify(b.payload(5, at(68))))!;
+    const i = { state: b.state, legalActions: generateLegalActions(request), request };
+    return [...needlessGamble(i).keys()].map(k => i.legalActions.find(a => a.id === k)!.label).sort();
+  };
+  assert.deepEqual(skippedAt(26), ['Sleep Powder'], 'Acrobatics knocks a 26% Volcanion out on most rolls, first; a miss by Sleep Powder removes nothing');
+  assert.deepEqual(skippedAt(29), ['Acrobatics', 'Sleep Powder'], 'at 29% it almost never does, and the switch is the better price');
+});
+
 test('without a switch-in that wins outright, the gamble stays a judgement call', () => {
   const roster = [ours('Jumpluff', 87, ['Acrobatics', 'Strength Sap', 'U-turn', 'Sleep Powder'], 'Infiltrator', '', 'Steel'),
     ours('Cinderace', 82, ['Pyro Ball', 'U-turn'], 'Libero', 'Choice Band', 'Fire')];

@@ -1921,3 +1921,33 @@ Tests: 408 pass.
   evaluation.
 - **Also.** `freeKnockoutPassedUp` doubles secondary chances for a possible Serene Grace user, so a Jirachi's Iron Head
   counts as a 60% flinch. The engine already doubled them.
+
+## Review of the 7 games after the peak, and `needlessGamble` (2026-09-25)
+
+- **Games.** 2687507386 through 2687513738: 5 wins and 2 losses, with the rating peaking at 2210.
+- **`needlessGamble` blocked a near-certain win.** In 2687507386, turn 16, Cinccino's Tail Slap knocked a Toxtricity
+  out 84% of the time and moved first. Jev (0.49) and the search (0.996 of visits, score 0.96) both chose it. The guard
+  sent Ting-Lu in instead, which the search scored 0.43: the 16% chance of losing Cinccino outweighed everything else.
+  - The guard weighed only the chance of losing our Pokémon. It never counted what the switch costs: the switch-in
+    takes a hit coming in, and another if it is slower.
+  - An attack is now staked only when the chance of losing our Pokémon × (30 + its HP), plus the entry hit a free
+    switch-in saves after a faint, outweighs the switch-in's hits. The 30 is what the engine counts for a Pokémon being
+    alive.
+  - Status gambles keep the old test, because a status move that lands still leaves the target on the field.
+  - On the logs, 22 of 129 skipped attacks are released. These include Tail Slap, Hurricane and Triple Axel, and attacks
+    whose switch-in would have taken a hit of up to 95%. Sure losses that meet a switch-in which wins cheaply stay
+    skipped.
+  - One new test: at 26% Volcanion, Acrobatics (a 69% knockout, moving first) is no longer blocked; at 29% (an 8%
+    knockout) it still is. 419 pass.
+- **Looked at and left alone.**
+  - The Strength Sap loop in 2687513738 (15 turns at full HP) answered a Regidrago that used Dragon Dance every turn,
+    and the bot won.
+  - The switching between Granbull and Chi-Yu against a +3 Cobalion in 2687500903 was resist-switching in a lost
+    position.
+  - In 2687511902, the search gave up Dragapult to keep Excadrill against a +4 Mimikyu. Every option lost a Pokémon
+    there.
+- **`freeKnockoutPassedUp` against large search leads.** It overrules the search's top pick on 133 logged decisions:
+  - 32 of them with a lead above 0.05, and 4 above 0.1.
+  - The largest leads were big setup moves (Shell Smash, No Retreat), the moves the engine's +30-per-stage boost value
+    inflates.
+  - Left as is. The honest fix is in the evaluation's boost terms, which needs a bench.

@@ -461,8 +461,9 @@ function sureSwitch(input: DecisionInput, foe: PokemonState) {
  * half the rolls, they can act — asleep or frozen, the gamble is theirs — and neither side is behind a Substitute. Some
  * switch must win outright as `sureSwitch` describes. A stay-in move is then skipped when it leaves at least a one-in-ten
  * chance of losing our Pokémon this turn: a status move that can miss, counted as if landing stopped them, or an attack
- * that does not remove them before they act. Healing, draining, pivoting out, Protect and status that cannot miss are
- * left to judgement, as is any move whose turn order is not settled.
+ * that does not remove them before they act, if the Pokémon it risks is worth more than the hits the switch-in takes.
+ * Healing, draining, pivoting out, Protect and status that cannot miss are left to judgement, as is any move whose turn
+ * order is not settled.
  */
 export function needlessGamble(input: DecisionInput) {
   const result = new Map<string, { by: string; reason: string }>();
@@ -513,6 +514,15 @@ export function needlessGamble(input: DecisionInput) {
         ? `${move.name} fails to knock ${foe.species} out ${pct(1 - removes)} of the time` : `${move.name} does not knock ${foe.species} out`;
     }
     if (losing < 0.1) continue;
+    // A switch is not free either: its Pokémon takes a hit coming in, and another if it is slower. An attack is staked
+    // only when what it risks, our Pokémon (counted as the engine counts one: 30 for being alive, plus its HP) less the
+    // entry hit a switch-in saves by coming in after a faint, outweighs those hits. Cinccino's Tail Slap knocked a
+    // Toxtricity out 84% of the time and moved first; the guard sent Ting-Lu into two 35% hits instead (2687507386).
+    // A status move that lands still leaves them on the field, so it keeps the stricter test.
+    if (move.category !== 'Status') {
+      const stake = losing * (30 + (me.hpPercent ?? 100) + (sure.hits - 1) * sure.worst);
+      if (stake < sure.hits * sure.worst) continue;
+    }
     result.set(action.id, { by: sure.action.id,
       reason: `${why}, and then ${threat.move} knocks ${me.species} out on about ${pct(threat.share)} of rolls: a ${pct(losing)} chance of losing it this turn, while ${sure.species} can come in, take ${sure.hits === 1 ? `a hit of at most ${sure.worst}%` : `two hits of at most ${sure.worst}% each`}, and knock ${foe.species} out with ${sure.move} at every sampled roll` });
   }
