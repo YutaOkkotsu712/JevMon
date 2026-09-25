@@ -59,7 +59,10 @@ for (const f of files) {
       flag('guard-vs-search', t, `${L(skip.from)} (${score(skip.from).toFixed(2)}) skipped for ${L(skip.to)} (${score(skip.to).toFixed(2)}): ${skip.reason.slice(0, 140)}`);
     }
     // A certain knockout that moves first, and a move played instead that is neither it nor another one.
-    if (s.requestKind === 'move' && me && foe && !foe.fainted && !Object.keys(foe.volatiles ?? {}).some(k => /substitute/i.test(k))) {
+    // Asleep, frozen or recharging, our Pokémon could not have used the knockout: Chi-Yu, Spored, was flagged for a
+    // Psychic it could not reach (2687851220).
+    const cannotAct = me && (['slp', 'frz'].includes(me.status ?? '') || Object.keys(me.volatiles ?? {}).some(k => /mustrecharge/i.test(k)));
+    if (s.requestKind === 'move' && me && foe && !cannotAct && !foe.fainted && !Object.keys(foe.volatiles ?? {}).some(k => /substitute/i.test(k))) {
       const moveOf = a => a.kind === 'move' ? a.label.split(' + Tera')[0] : null;
       const teraOf = a => a.command?.endsWith(' terastallize') ? me.teraType ?? undefined : undefined;
       const certain = (name, tera) => { try { return dex.moves.get(name).category !== 'Status' && damageRange(s, name, tera)?.conditionalKO === 'all-sampled-rolls'; } catch { return false; } };
