@@ -28,6 +28,21 @@ export const protectMoves = new Set(['protect', 'detect', 'spikyshield', 'banefu
 /** Callers that pick from the user's own move set, so the move they call is still evidence of that set. */
 const ownSetCallers = new Set(['sleeptalk', 'instruct', 'dancer0', 'lockedmove']);
 
+/**
+ * The stats Transform copies: all but HP, taken from the target. Ours are known exactly. An opponent's are the Random
+ * Battle spread at its level (85 EVs and 31 IVs in each, neutral nature), which misses only the rare set with 0 Attack
+ * or Speed IVs. Left unknown, every estimate for our Ditto was dropped, and the request then filled in Ditto's own.
+ */
+function copiedStats(target: PokemonState): Record<string, number> {
+  if (['atk', 'def', 'spa', 'spd', 'spe'].every(k => (target.stats?.[k] ?? 0) > 0)) return { ...target.stats };
+  const species = dex.species.get(target.transformedInto ?? target.species);
+  if (!species.exists) return { ...target.stats };
+  const level = Number(/(?:^|, )L(\d+)(?:,|$)/.exec(target.details)?.[1] ?? 100);
+  const stat = (base: number) => Math.floor((2 * base + 31 + Math.floor(85 / 4)) * level / 100) + 5;
+  const b = species.baseStats;
+  return { atk: stat(b.atk), def: stat(b.def), spa: stat(b.spa), spd: stat(b.spd), spe: stat(b.spe) };
+}
+
 export class BattleTracker {
   state: BattleState;
   private nextId = 0;
@@ -373,7 +388,7 @@ export class BattleTracker {
           pokemon.boosts = { ...target.boosts };
           pokemon.copiedMoves = [...(target.knownMoves.length ? target.knownMoves : target.revealedMoves)];
           pokemon.ability = target.ability; pokemon.abilitySuppressed = false;
-          pokemon.stats = { ...target.stats };
+          pokemon.stats = copiedStats(target);
           pokemon.lastMoveUsed = null; pokemon.sameMoveStreak = 0;
           if (a.some(x => x === '[from] ability: Imposter') && !pokemon.baseAbility) pokemon.baseAbility = 'Imposter';
         } else this.uncertain('Unresolved Transform target');
@@ -522,7 +537,9 @@ export class BattleTracker {
           }
         }
       }
-      if (isRecord(row.stats)) p.stats = Object.fromEntries(Object.entries(row.stats).filter(([key, value]) => stats.has(key) && typeof value === 'number' && Number.isFinite(value) && value > 0)) as Record<string, number>;
+      // A transformed Pokémon's request carries its own stats, not the copied ones: Ditto as Latias was modelled with
+      // Ditto's Speed, slower than the Latias its Choice Scarf outran, and Ditto's weak attacks.
+      if (isRecord(row.stats) && !p.transformedInto) p.stats = Object.fromEntries(Object.entries(row.stats).filter(([key, value]) => stats.has(key) && typeof value === 'number' && Number.isFinite(value) && value > 0)) as Record<string, number>;
       if (typeof row.baseAbility === 'string') p.baseAbility = row.baseAbility;
       if (typeof row.ability === 'string') p.ability = row.ability;
       else if (typeof row.baseAbility === 'string' && p.ability === null) p.ability = row.baseAbility;

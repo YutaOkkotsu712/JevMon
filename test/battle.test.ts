@@ -303,3 +303,21 @@ test('our transformed Pokémon copies every move from its request, and the targe
   const latias = t.state.sides.p2.team.find(p => p.species === 'Latias')!;
   assert.deepEqual([...latias.revealedMoves].sort(), ['Calm Mind', 'Draco Meteor', 'Psyshock', 'Recover']);
 });
+
+test('our Pokémon transformed into an opponent keeps the copied stats, which its request does not carry', () => {
+  // 2687703481: the request's stats are Ditto's own, and overwrote the copy, so our Choice Scarf Ditto as Latias was
+  // judged slower than Latias and hit like a Ditto.
+  const t = new BattleTracker(room);
+  const row = { ident: 'p1: Ditto', details: 'Ditto, L87', active: true, condition: '225/225', baseAbility: 'Imposter',
+    item: 'choicescarf', moves: ['psyshock', 'recover', 'calmmind', 'dracometeor'],
+    stats: { atk: 150, def: 150, spa: 150, spd: 150, spe: 150 } };
+  feed(t, '|switch|p2a: Latias|Latias, L79, F|100/100');
+  feed(t, '|switch|p1a: Ditto|Ditto, L87|225/225\n|-transform|p1a: Ditto|p2a: Latias|[from] ability: Imposter\n|turn|2');
+  feed(t, `|request|${JSON.stringify({ active: [{ moves: [] }], side: { id: 'p1', pokemon: [row] } })}`);
+  const ditto = t.state.sides.p1.team[0]!;
+  // Latias's base 110 Speed at level 79 with the Random Battle spread.
+  assert.equal(ditto.stats.spe, Math.floor((2 * 110 + 31 + 21) * 79 / 100) + 5);
+  assert.equal(ditto.stats.spa, Math.floor((2 * 110 + 31 + 21) * 79 / 100) + 5, 'Latias\'s Special Attack, not Ditto\'s');
+  feed(t, '|switch|p1a: Ditto|Ditto, L87|225/225');
+  void 0;
+});
