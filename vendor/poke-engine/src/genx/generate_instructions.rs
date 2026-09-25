@@ -1700,6 +1700,14 @@ fn cannot_use_move(state: &State, choice: &Choice, attacking_side_ref: &SideRefe
             .contains(&PokemonVolatileStatus::HEALBLOCK)
     {
         return true;
+    } else if choice.flags.sound
+        && attacking_side
+            .volatile_statuses
+            .contains(&PokemonVolatileStatus::THROATCHOP)
+    {
+        // Throat Chop stops sound moves: two turns in Showdown, here until the Pokémon switches out, as heal block
+        // is. Before this its volatile was set and stopped nothing, across 23 Random Battle sets.
+        return true;
     }
     false
 }

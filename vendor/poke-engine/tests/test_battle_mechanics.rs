@@ -22938,3 +22938,25 @@ fn test_poison_puppeteer_confuses_with_its_poison() {
     assert!(instructions.iter().any(|i| i.instruction_list.iter().any(|x| matches!(x,
         Instruction::ApplyVolatileStatus(v) if v.volatile_status == PokemonVolatileStatus::CONFUSION && v.side_ref == SideReference::SideTwo))));
 }
+
+#[test]
+fn test_throat_chop_stops_sound_moves() {
+    let mut state = State::default();
+    state
+        .side_one
+        .volatile_statuses
+        .insert(PokemonVolatileStatus::THROATCHOP);
+    let instructions = set_moves_on_pkmn_and_call_generate_instructions(
+        &mut state,
+        Choices::BOOMBURST,
+        Choices::SPLASH,
+    );
+    assert_eq!(0, damage_to(&instructions, SideReference::SideTwo), "Boomburst fails");
+    let mut clear = State::default();
+    let instructions = set_moves_on_pkmn_and_call_generate_instructions(
+        &mut clear,
+        Choices::BOOMBURST,
+        Choices::SPLASH,
+    );
+    assert!(damage_to(&instructions, SideReference::SideTwo) > 0);
+}

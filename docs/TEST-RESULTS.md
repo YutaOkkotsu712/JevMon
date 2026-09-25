@@ -2088,3 +2088,21 @@ Tests: 408 pass.
   - On 245 logged positions, every depth-2 matrix that changed came from one with these abilities or Disable or Charge
     (74 had one, mostly among the sampled unrevealed Pokémon).
   - Deployed; the previous binary is kept as `poke-engine.before-abilities`.
+
+## Gap audit: moves, status effects and items (2026-09-25)
+
+- **Moves.** Of the 348 moves in the Random Battle sets, 29 are written as code in Showdown and appear in the engine
+  only as data.
+  - Most are covered some other way. Taunt, Yawn and Heal Block are enforced through their status effects; Triple Axel
+    is three hits of 40 (120 in all, as the real 20 + 40 + 60); Supercell Slam and High Jump Kick crash; and every
+    Random Battle Curse user is non-Ghost, whose boosts are modelled.
+  - The rest are situational or rare: Stomping Tantrum, Lash Out, Fickle Beam, Psychic Fangs and Brick Break breaking
+    screens, Shell Side Arm choosing its category, Bleakwind Storm in rain.
+- **Status effects set but never read.** Moves set 39 volatile statuses that the engine reads at most twice outside the
+  move table. The one that mattered was Throat Chop (23 sets): its volatile was set, and sound moves (Boomburst, Hyper
+  Voice, Bug Buzz, Torch Song, Sparkling Aria) were never stopped. They now fail beside Taunt and Heal Block, until the
+  Pokémon switches out (two turns in Showdown). Disable had the same fault and was fixed earlier today.
+- **Items.** Of the 60 items in the sets, three are never referenced: Light Clay (8-turn screens, past the search's
+  horizon), Scope Lens (a crit rate) and Leppa Berry (one set). The rest are handled where the engine applies them.
+- Engine: 233 unit and 685 battle-mechanics tests pass, including a new Throat Chop test. Deployed; the previous binary
+  is kept as `poke-engine.before-throatchop`.
