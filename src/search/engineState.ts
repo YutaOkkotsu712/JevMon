@@ -136,7 +136,18 @@ function side(s: BattleState, sideId: SideId, known: boolean, world: World, lega
   // A fainted Pokémon is written as itself at 0 HP, which the engine treats exactly like a placeholder until Revival
   // Blessing brings it back; as a placeholder there was nobody real to revive. Unbuildable Pokémon and the opposing
   // slots not yet revealed stay placeholders.
-  const slots = [...team.map(p => pokemon(p, known ? undefined : world.sets.get(p.id), known, p.id === v.activeId ? legal?.moves : undefined, unshown)),
+  // Their Choice lock, as the request gives ours: a sampled set holding a Choice item, or with Gorilla Tactics, is
+  // locked into the move it used since coming in. Left open, a Choice Band locked into Close Combat could still pick
+  // Shadow Claw at the root, and a Ghost switching in to take the lock looked worse than it was.
+  const theirLock = (p: PokemonState) => {
+    const set = world.sets.get(p.id);
+    if (known || p.id !== v.activeId || !p.lastMoveUsed || p.transformedInto) return undefined;
+    const item = id(p.item ?? set?.item ?? ''), ability = p.abilitySuppressed ? '' : id(p.ability ?? set?.ability ?? '');
+    if (!['choiceband', 'choicespecs', 'choicescarf'].includes(item) && ability !== 'gorillatactics') return undefined;
+    const move = id(p.lastMoveUsed);
+    return moveNames(p, set, false).includes(move) ? new Set([move]) : undefined;
+  };
+  const slots = [...team.map(p => pokemon(p, known ? undefined : world.sets.get(p.id), known, p.id === v.activeId ? legal?.moves ?? theirLock(p) : undefined, unshown)),
     ...(known ? [] : world.unrevealed.map(u => pokemon(u.pokemon, u.set, false)))].slice(0, 6);
   const filler = spent ? PLACEHOLDER.replace(/,false,Normal,0$/, ',true,Normal,0') : PLACEHOLDER;
   const written = slots.map(x => x ?? filler);

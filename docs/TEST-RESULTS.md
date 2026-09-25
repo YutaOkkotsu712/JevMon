@@ -2133,3 +2133,16 @@ Tests: 408 pass.
 - `npm run review` no longer flags a knockout that would cost our Pokémon to recoil (Squawkabilly at 13% took a Tera
   Facade over a Brave Bird whose recoil would have knocked it out as well), a Tera'd move that knocks out, or a move
   whose target had already fainted.
+
+## The opponent's Choice lock reaches the engine (2026-09-25)
+
+- Our own lock reaches the engine from the request. The opponent's never did: every move of theirs was written as
+  available. So a sampled Choice Band set locked into Close Combat could still pick Shadow Claw at the root, and a Ghost
+  switching in to take the lock looked worse than it was.
+- The opposing active's other moves are now closed when its sampled set holds a Choice item, or has Gorilla Tactics,
+  and it has used a move since coming in. The tracker clears the last move on switching. The move must be in the
+  written moveset. Across worlds the lock follows each set's item, so it is as likely as the sets make it.
+- The engine already locks a Choice holder after a move inside the search; only the starting position lacked it.
+- Also found and left: a pending Future Sight is never written, since the engine takes it by turns and user slot. It is
+  rare in the sets.
+- One new test; 424 pass. The engine took all 830 logged positions with timed effects.

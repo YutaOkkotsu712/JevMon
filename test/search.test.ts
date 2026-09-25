@@ -435,6 +435,20 @@ test('the search timeout covers the extra pass or the endgame, whichever is long
   assert.equal(searchTimeoutMs({ ...base, endgamePokemon: 4, endgameMsPerWorld: 2000 }, 8), 1 * 2000 * 2 + 1000);
 });
 
+test('an opposing Choice lock reaches the engine as ours does', () => {
+  const b = battleFor([ourRow('Gengar', 82, ['Shadow Ball', 'Sludge Wave', 'Focus Blast', 'Nasty Plot'], 'Cursed Body', 'Life Orb', 'Ghost')], 'Heracross', 83);
+  b.feed('|move|p2a: Foe|Close Combat|p1a: Gengar'); b.feed('|-immune|p1a: Gengar'); b.feed('|turn|2');
+  const written = (item: string | null) => {
+    b.foe().item = item;
+    const two = engineStateOf(b.state, 'p1', worldOf(b.state, 'p1', () => 0.5)).state.split('/')[1]!.split('=');
+    return two[Number(two[6])]!.split(',').slice(22, 26);
+  };
+  const scarfed = written('Choice Scarf');
+  assert.ok(scarfed.some(m => /^CLOSECOMBAT;false;/.test(m)), 'the locked move stays open');
+  assert.ok(scarfed.filter(m => !/^CLOSECOMBAT;|^NONE;/.test(m)).every(m => /;true;/.test(m)), `the rest are closed: ${scarfed.join(' ')}`);
+  assert.ok(written('Leftovers').every(m => /;false;|^NONE;/.test(m)), 'without a Choice item nothing is locked');
+});
+
 test('timed effects reach the engine with the turns they have left', () => {
   const b = battleFor([ourRow('Snorlax', 84, ['Body Slam', 'Curse', 'Rest', 'Sleep Talk'], 'Thick Fat', 'Leftovers', 'Normal')], 'Dragonite', 80);
   b.feed('|turn|2');
