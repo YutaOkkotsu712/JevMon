@@ -2440,3 +2440,17 @@ overruling the search, or a guard's fallback. Four fixes:
   - The original Reshiram test now has a Toxapex answer. Its Gardevoir version, slower and badly hit by Sludge Bomb, no
     longer fires.
 - Tests: the berry heal line; both sleeper cases. 441 pass.
+
+## A heal loop we are losing is broken: `losingHealLoop` (2026-09-26, audit-v16)
+
+- In 2687868557 Vigoroth, paralysed, used Slack Off six turns running against a Duraludon at 47%. Each 50% heal met a
+  46% Flash Cannon. One full paralysis took it from 51% to 5%, and Duraludon never lost a point. The search put about
+  60% of its visits on Slack Off throughout; the loss is past its horizon.
+- Across the logs there were 19 runs of three or more heals against the same opponent that left its HP untouched. We
+  won 5 of those 18 games, against about 60% overall. The runs by statused Pokémon lost our own HP in every case but one.
+- The guard skips a heal once it has been used twice running when our active is paralysed, poisoned or burned, and the
+  heal's average return is below the least the opponent's strongest revealed attack takes. The average return is a
+  quarter less for paralysis, and poison or burn chip is taken off. Rest, which cures the status, is left alone.
+- Over all logged games it changes 10 played decisions: Vigoroth ×4, Ho-Oh ×4 (badly poisoned), Vespiquen ×1 and
+  Noivern ×1. Nine were in losses; in the Noivern win the search already rated Hurricane above Roost.
+- Test: paralysed Vigoroth is skipped; once cured it is not. 442 pass.

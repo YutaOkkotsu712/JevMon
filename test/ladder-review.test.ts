@@ -826,3 +826,17 @@ test('a nearly spent active is let go even when the switch-in loses only a fifth
   const names = labels(input, savingTheDoomed(input));
   assert.ok(names.some(n => n.includes('Quaquaval')), `Quaquaval is not spent on a 3% Iron Leaves: ${names.join(', ')}`);
 });
+
+import { losingHealLoop } from '../src/strategy/dominance.js';
+test('a heal loop we are losing is broken: paralysed Slack Off against a hit it cannot keep up with', () => {
+  // 2687868557: Vigoroth, paralysed, used Slack Off six turns running into Duraludon's Flash Cannon and lost ground.
+  const roster = [ours('Vigoroth', 85, ['Slack Off', 'Body Slam', 'Knock Off', 'Bulk Up'], 'Vital Spirit', 'Leftovers', 'Ghost'),
+    ours('Chansey', 85, ['Seismic Toss', 'Soft-Boiled', 'Thunder Wave', 'Stealth Rock'], 'Natural Cure', 'Eviolite', 'Fairy')];
+  const b = battle(roster, 'Duraludon', 84);
+  b.feed('|move|p2a: Foe|Flash Cannon|p1a: Vigoroth'); b.feed('|-status|p1a: Vigoroth|par');
+  for (const turn of [2, 3]) { b.feed('|move|p1a: Vigoroth|Slack Off|p1a: Vigoroth'); b.feed(`|turn|${turn}`); }
+  const input = decide(b, Math.round(roster[0]!.maxHP * 0.51));
+  assert.deepEqual(labels(input, losingHealLoop(input)), ['Slack Off']);
+  b.feed('|-curestatus|p1a: Vigoroth|par|[msg]');
+  assert.equal(losingHealLoop(decide(b, Math.round(roster[0]!.maxHP * 0.51))).size, 0, 'healthy, the heal keeps pace');
+});

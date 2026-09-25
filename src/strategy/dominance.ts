@@ -1668,6 +1668,43 @@ export function pickedOffOnArrival(input: DecisionInput) {
 }
 
 /**
+ * A heal loop we are losing. Vigoroth, paralysed, used Slack Off six turns running against a Duraludon at 47%: each
+ * heal of 50% met a 46% Flash Cannon, a full paralysis turned 51% into 5%, and Duraludon never lost a point
+ * (2687868557). Across the logs, 19 runs of three heals or more left the opponent's HP untouched, and we won 5 of
+ * them; the statused ones lost ground every time but one.
+ *
+ * Narrow: our active has already used the same heal twice in a row, is paralysed, poisoned or burned, and what the
+ * heal gives back on average (a quarter lost to paralysis, less the poison or burn chip) is less than the least the
+ * opponent's strongest revealed attack takes. Rest, which cures the status, is left alone.
+ */
+export function losingHealLoop(input: DecisionInput) {
+  const result = new Map<string, { by: string; reason: string }>();
+  const s = input.state;
+  if (!s.mySide || s.requestKind !== 'move' || input.request?.forceSwitch?.[0]) return result;
+  const side = s.mySide, foeSide: SideId = side === 'p1' ? 'p2' : 'p1';
+  const me = s.sides[side].team.find(p => p.id === s.sides[side].activeId), foe = s.sides[foeSide].team.find(p => p.id === s.sides[foeSide].activeId);
+  if (!me || !foe || me.fainted || foe.fainted || !['par', 'psn', 'tox', 'brn'].includes(me.status ?? '')) return result;
+  if ((me.sameMoveStreak ?? 0) < 2 || !me.lastMoveUsed) return result;
+  let threat; try { threat = incomingThreats(s, me, side, Infinity); } catch { return result; }
+  const hit = Math.max(0, ...(threat?.damagingMoves ?? []).filter(m => m.revealed && m.accuracyPercent === undefined).map(m => m.percentOfMaxHP[0]));
+  if (!hit) return result;
+  const ability = me.abilitySuppressed ? '' : id(me.ability);
+  const chip = me.status === 'tox' ? Math.min(15, (me.toxicTurns ?? 0) + 1) * 6.25 : me.status === 'psn' ? 12.5 : me.status === 'brn' ? 6.25 : 0;
+  const lost = ['magicguard', 'poisonheal'].includes(ability) ? 0 : chip;
+  for (const action of input.legalActions) {
+    if (action.kind !== 'move') continue;
+    const move = dex.moves.get(action.label.split(' + Tera')[0]!);
+    if (!move.exists || move.id === 'rest' || id(me.lastMoveUsed) !== move.id) continue;
+    const heal = healPercentNow(move.name, s.field.weather);
+    if (!heal) continue;
+    const gives = (me.status === 'par' ? 0.75 : 1) * heal - lost;
+    if (gives >= hit) continue;
+    result.set(action.id, { by: 'loop', reason: `${me.species} has used ${move.name} ${me.sameMoveStreak} times running, and while ${me.status === 'par' ? 'paralysed' : me.status === 'brn' ? 'burned' : 'poisoned'} it gives back about ${Math.round(gives)}% a turn against the ${Math.round(hit)}% ${foe.species}'s revealed attack takes at least: the loop loses ground every turn, so attack or switch while there is HP to do it with` });
+  }
+  return result;
+}
+
+/**
  * Switching a healthier Pokémon into the hit that was about to knock out a weak one. Poliwrath at 23% faced a Flamigo
  * that had shown Close Combat; Baxcalibur came in at 57% to take it, fell to 8%, fainted next turn, and Poliwrath came
  * back to faint anyway (2687729196). Left in, Poliwrath is the only loss, and whatever replaces it comes in free.
