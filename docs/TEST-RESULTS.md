@@ -1951,3 +1951,35 @@ Tests: 408 pass.
   - The largest leads were big setup moves (Shell Smash, No Retreat), the moves the engine's +30-per-stage boost value
     inflates.
   - Left as is. The honest fix is in the evaluation's boost terms, which needs a bench.
+
+## Engine gaps: Rage Fist and Anger Shell (2026-09-25)
+
+- **Audit.** 203 abilities appear in the Gen 9 Random Battle sets, and 18 of them are never referenced in the engine.
+  Those are Multitype (handled through Judgment and the plates), Harvest, Cursed Body, Frisk, Synchronize, Unnerve,
+  Illusion, Dancer, Early Bird, Cud Chew, Sniper, Cheek Pouch, Tera Shift, Power Spot, Cute Charm, Electromorphosis,
+  Anger Shell and Poison Puppeteer. Among Gen 9 moves, Rage Fist was a flat 50 base power.
+- **Rage Fist.**
+  - Engine Pokémon carry `times_attacked`, written as a 30th field. The field is optional, so older states still load.
+  - A damaging hit on a Pokémon that carries Rage Fist counts, through a reversible `ChangeTimesAttacked` instruction.
+    Only Rage Fist users count, so every other hit's instruction list is unchanged and none of the 900-odd existing
+    engine tests moved.
+  - Rage Fist is 50 base power plus 50 per hit, capped at 350.
+  - The tracker counts hits for every Pokémon, not only the leads, and the search writes the count.
+  - In 2687500903, on turns 14–16, Annihilape's Rage Fist scored 0.43–0.57 in the new engine against 0.27–0.45 before.
+    The lookahead now sees it growing as Annihilape takes hits.
+- **Anger Shell.** It fires where Berserk does: dropping below half HP from a hit gives +1 Attack, Special Attack and
+  Speed, and −1 Defense and Special Defense.
+- **Still missing.**
+  - Random effects: Cursed Body, Harvest, Synchronize, Poison Puppeteer. The engine's on-hit hook cannot branch on a
+    chance.
+  - Electromorphosis needs Charge to end after an Electric move, which the engine never does.
+  - Illusion and Dancer.
+  - Minor effects with no impact on the search: Frisk, Power Spot, Cute Charm, Unnerve, Cud Chew, Cheek Pouch, Early
+    Bird, Sniper.
+- **Checks.**
+  - Engine: 233 unit and 679 battle-mechanics tests pass, including four new ones: Rage Fist's power, counting only for
+    Rage Fist users, serialization with old states still loading, and Anger Shell.
+  - TypeScript: 420 pass.
+  - Depth-2 matrices on 245 logged positions match the previous binary except in the positions with a Rage Fist or Anger
+    Shell user.
+  - Deployed; the previous binary is kept as `poke-engine.before-ragefist`.

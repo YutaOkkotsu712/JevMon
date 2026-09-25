@@ -22740,3 +22740,106 @@ fn test_imposter_fails_into_a_substitute() {
     assert_eq!(Abilities::IMPOSTER, ditto.ability);
     assert_eq!(0, state.side_one.special_attack_boost);
 }
+
+fn damage_to(instructions: &Vec<StateInstructions>, side: SideReference) -> i16 {
+    instructions[0]
+        .instruction_list
+        .iter()
+        .filter_map(|i| match i {
+            Instruction::Damage(d) if d.side_ref == side => Some(d.damage_amount),
+            _ => None,
+        })
+        .sum()
+}
+
+#[test]
+fn test_rage_fist_gains_fifty_base_power_for_each_hit_taken() {
+    let base = |hits: i8| {
+        let mut state = State::default();
+        state.side_two.get_active().hp = 1000;
+        state.side_two.get_active().maxhp = 1000;
+        // The default Normal type is immune to Ghost.
+        state.side_two.get_active().types = (PokemonType::PSYCHIC, PokemonType::TYPELESS);
+        state.side_one.get_active().times_attacked = hits;
+        let instructions = set_moves_on_pkmn_and_call_generate_instructions(
+            &mut state,
+            Choices::RAGEFIST,
+            Choices::SPLASH,
+        );
+        damage_to(&instructions, SideReference::SideTwo)
+    };
+    let (none, three, capped) = (base(0), base(3), base(9));
+    assert!(three > 3 * none, "200 base power against 50: {} against {}", three, none);
+    assert_eq!(capped, base(6), "350 base power is the ceiling");
+}
+
+#[test]
+fn test_rage_fist_user_counts_damaging_hits_and_others_do_not() {
+    let mut state = State::default();
+    state
+        .side_one
+        .get_active()
+        .replace_move(PokemonMoveIndex::M1, Choices::RAGEFIST);
+    let instructions = set_moves_on_pkmn_and_call_generate_instructions(
+        &mut state,
+        Choices::SPLASH,
+        Choices::TACKLE,
+    );
+    state.apply_instructions(&instructions[0].instruction_list);
+    assert_eq!(1, state.side_one.get_active_immutable().times_attacked);
+    state.reverse_instructions(&instructions[0].instruction_list);
+    assert_eq!(0, state.side_one.get_active_immutable().times_attacked);
+
+    let mut plain = State::default();
+    let instructions = set_moves_on_pkmn_and_call_generate_instructions(
+        &mut plain,
+        Choices::SPLASH,
+        Choices::TACKLE,
+    );
+    assert!(!instructions[0]
+        .instruction_list
+        .iter()
+        .any(|i| matches!(i, Instruction::ChangeTimesAttacked(_))));
+}
+
+#[test]
+fn test_times_attacked_survives_serialization_and_old_states_still_load() {
+    let mut state = State::default();
+    state.side_one.get_active().times_attacked = 4;
+    let text = state.serialize();
+    assert_eq!(4, State::deserialize(&text).side_one.get_active_immutable().times_attacked);
+    let pokemon = state.side_one.get_active_immutable().serialize();
+    let old = pokemon.rsplit_once(',').unwrap().0;
+    assert_eq!(0, poke_engine::state::Pokemon::deserialize(old).times_attacked);
+}
+
+#[test]
+fn test_anger_shell_boosts_when_a_hit_drops_it_below_half() {
+    let mut state = State::default();
+    let klawf = state.side_two.get_active();
+    klawf.ability = Abilities::ANGERSHELL;
+    klawf.hp = 51;
+    let instructions = set_moves_on_pkmn_and_call_generate_instructions(
+        &mut state,
+        Choices::TACKLE,
+        Choices::SPLASH,
+    );
+    state.apply_instructions(&instructions[0].instruction_list);
+    assert!(state.side_two.get_active_immutable().hp < 50);
+    assert_eq!((1, 1, 1, -1, -1), (
+        state.side_two.attack_boost,
+        state.side_two.special_attack_boost,
+        state.side_two.speed_boost,
+        state.side_two.defense_boost,
+        state.side_two.special_defense_boost,
+    ));
+    let mut healthy = State::default();
+    healthy.side_two.get_active().ability = Abilities::ANGERSHELL;
+    let instructions = set_moves_on_pkmn_and_call_generate_instructions(
+        &mut healthy,
+        Choices::TACKLE,
+        Choices::SPLASH,
+    );
+    healthy.apply_instructions(&instructions[0].instruction_list);
+    assert_eq!(0, healthy.side_two.attack_boost, "a hit that leaves it above half changes nothing");
+}

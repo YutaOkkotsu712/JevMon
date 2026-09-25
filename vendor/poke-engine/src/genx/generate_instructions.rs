@@ -11,7 +11,7 @@ use crate::choices::{
     Boost, Choices, Effect, Heal, MoveTarget, MultiHitMove, Secondary, SideCondition, StatBoosts,
     Status, VolatileStatus, MOVES,
 };
-use crate::instruction::{
+use crate::instruction::{ChangeTimesAttackedInstruction, 
     ApplyVolatileStatusInstruction, BoostInstruction, ChangeDamageDealtDamageInstruction,
     ChangeDamageDealtMoveCategoryInstruction, ChangeItemInstruction,
     ChangeSideConditionInstruction, ChangeTerrain, ChangeType,
@@ -1517,6 +1517,22 @@ fn generate_instructions_from_damage(
                         false,
                         &mut incoming_instructions,
                     );
+                }
+
+                // Rage Fist counts every damaging hit its user takes, up to the six that reach 350 base power. Only a
+                // Pokémon carrying it is counted, so every other hit keeps its instruction list as it was.
+                let defender = state.get_side(&attacking_side_ref.get_other_side()).get_active();
+                let rage_fist = [&defender.moves.m0, &defender.moves.m1, &defender.moves.m2, &defender.moves.m3]
+                    .iter()
+                    .any(|m| m.id == Choices::RAGEFIST);
+                if damage_dealt > 0 && rage_fist && defender.times_attacked < 6 {
+                    defender.times_attacked += 1;
+                    incoming_instructions
+                        .instruction_list
+                        .push(Instruction::ChangeTimesAttacked(ChangeTimesAttackedInstruction {
+                            side_ref: attacking_side_ref.get_other_side(),
+                            amount: 1,
+                        }));
                 }
 
                 ability_after_damage_hit(

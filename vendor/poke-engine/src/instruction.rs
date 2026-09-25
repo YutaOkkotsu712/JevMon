@@ -67,6 +67,7 @@ pub enum Instruction {
     DisableMove(DisableMoveInstruction),
     EnableMove(EnableMoveInstruction),
     ChangeMove(ChangeMoveInstruction),
+    ChangeTimesAttacked(ChangeTimesAttackedInstruction),
     ChangeWish(ChangeWishInstruction),
     DecrementWish(DecrementWishInstruction),
     SetFutureSight(SetFutureSightInstruction),
@@ -217,6 +218,9 @@ impl fmt::Debug for Instruction {
             }
             Instruction::DisableMove(d) => {
                 write!(f, "DisableMove {:?}: {:?}", d.side_ref, d.move_index)
+            }
+            Instruction::ChangeTimesAttacked(c) => {
+                write!(f, "ChangeTimesAttacked {:?}: {}", c.side_ref, c.amount)
             }
             Instruction::ChangeMove(c) => {
                 write!(
@@ -458,6 +462,13 @@ pub struct EnableMoveInstruction {
 pub struct DisableMoveInstruction {
     pub side_ref: SideReference,
     pub move_index: PokemonMoveIndex,
+}
+
+/// Counts a damaging hit on the active Pokémon, for Rage Fist.
+#[derive(Debug, PartialEq, Clone)]
+pub struct ChangeTimesAttackedInstruction {
+    pub side_ref: SideReference,
+    pub amount: i8,
 }
 
 /// Replaces one move of the active Pokémon, as Imposter does. Like ChangeAbility it carries the difference between the

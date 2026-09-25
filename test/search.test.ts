@@ -30,7 +30,7 @@ test('our battle serialises into poke-engine\'s format, one sampled world at a t
   for (const side of [one!, two!]) {
     const fields = side.split('=');
     assert.equal(fields.length, 29, 'twenty-nine side fields');
-    for (const p of fields.slice(0, 6)) assert.equal(p.split(',').length, 29, `twenty-nine Pokémon fields: ${p.slice(0, 40)}`);
+    for (const p of fields.slice(0, 6)) assert.equal(p.split(',').length, 30, `thirty Pokémon fields: ${p.slice(0, 40)}`);
   }
   assert.match(one!, /^TERRAKION,79,Rock,Fighting,/);
   assert.match(two!, /^SINISTCHA,/);
@@ -45,7 +45,7 @@ test('the engine only sees what we can actually do: locked moves disabled, spent
   const terrakion = state.split('/')[0]!.split('=')[0]!.split(',');
   assert.deepEqual(terrakion.slice(22, 25), ['CLOSECOMBAT;false;7', 'STONEEDGE;true;8', 'EARTHQUAKE;true;16'], 'one Close Combat spent, the others disabled');
   assert.match(state.split('/')[0]!, /=move:0=false$/, 'its last action was its first move');
-  assert.ok(state.split('/')[0]!.split('=').slice(0, 6).some(p => p.endsWith(',true,Normal')), 'a spent Tera is carried on a placeholder');
+  assert.ok(state.split('/')[0]!.split('=').slice(0, 6).some(p => /,true,Normal,\d+$/.test(p)), 'a spent Tera is carried on a placeholder');
 });
 
 test('a forced replacement keeps Tera available for the next turn', () => {
@@ -57,11 +57,11 @@ test('a forced replacement keeps Tera available for the next turn', () => {
   const world = sampleWorld(b.state, 'p1', seeded(3));
   const forced = { moves: new Set<string>(), canSwitch: true, canTera: false, forcedSwitch: true };
   const { state } = toEngineState(b.state, 'p1', world, forced);
-  assert.ok(state.split('/')[0]!.split('=').slice(0, 6).every(p => !p.endsWith(',true,Normal')),
+  assert.ok(state.split('/')[0]!.split('=').slice(0, 6).every(p => !/,true,Normal,\d+$/.test(p)),
     'Tera is unavailable on the replacement choice but remains unspent');
   b.state.sides.p1.team[0]!.terastallized = true;
   const used = toEngineState(b.state, 'p1', world, forced).state;
-  assert.ok(used.split('/')[0]!.split('=').slice(0, 6).some(p => p.endsWith(',true,Normal')),
+  assert.ok(used.split('/')[0]!.split('=').slice(0, 6).some(p => /,true,Normal,\d+$/.test(p)),
     'a Tera actually spent before fainting remains spent');
 });
 
@@ -391,6 +391,18 @@ test('the search timeout covers the extra pass or the endgame, whichever is long
   assert.equal(searchTimeoutMs(base, 8), 2 * 200 * 2 + 1000);
   assert.equal(searchTimeoutMs({ ...base, extraWorlds: 16 }, 8), 2 * (2 * 200 * 2) + 1000);
   assert.equal(searchTimeoutMs({ ...base, endgamePokemon: 4, endgameMsPerWorld: 2000 }, 8), 1 * 2000 * 2 + 1000);
+});
+
+test('the hits a Pokémon has taken reach the engine, for Rage Fist', () => {
+  // The engine's Rage Fist was a flat 50 base power; it gains 50 for every hit its user has taken, up to 350.
+  const b = battleFor([ourRow('Annihilape', 76, ['Rage Fist', 'Drain Punch', 'Bulk Up', 'Gunk Shot'], 'Defiant', 'Leftovers', 'Water')], 'Cobalion', 80);
+  b.feed('|move|p2a: Foe|Flash Cannon|p1a: Annihilape'); b.feed('|-damage|p1a: Annihilape|200/292'); b.feed('|turn|2');
+  b.feed('|move|p2a: Foe|Flash Cannon|p1a: Annihilape'); b.feed('|-damage|p1a: Annihilape|120/292'); b.feed('|turn|3');
+  b.feed('|-damage|p1a: Annihilape|100/292|[from] Stealth Rock');
+  const text = engineStateOf(b.state, 'p1', worldOf(b.state, 'p1', () => 0.5)).state.split('/')[0]!;
+  const fields = text.split('=');
+  const mon = fields[Number(fields[6])]!;
+  assert.equal(mon.split(',')[29], '2', 'two hits; the hazard damage does not count');
 });
 
 test('a transformed Pokémon reaches the search as its copy: species, types and moves, with its own HP', () => {

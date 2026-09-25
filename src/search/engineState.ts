@@ -42,7 +42,7 @@ const volatiles = new Set(['MUSTRECHARGE', 'AQUARING', 'ATTRACT', 'CONFUSION', '
   'PROTOSYNTHESISSPA', 'PROTOSYNTHESISSPD', 'PROTOSYNTHESISSPE', 'QUARKDRIVEATK', 'QUARKDRIVEDEF', 'QUARKDRIVESPA',
   'QUARKDRIVESPD', 'QUARKDRIVESPE']);
 const upper = (v: string | null | undefined) => id(v).toUpperCase();
-const PLACEHOLDER = 'none,1,Typeless,Typeless,Typeless,Typeless,0,1,NONE,NONE,NONE,SERIOUS,,1,1,1,1,1,None,0,0,1,NONE;true;0,NONE;true;0,NONE;true;0,NONE;true;0,false,false,Normal';
+const PLACEHOLDER = 'none,1,Typeless,Typeless,Typeless,Typeless,0,1,NONE,NONE,NONE,SERIOUS,,1,1,1,1,1,None,0,0,1,NONE;true;0,NONE;true;0,NONE;true;0,NONE;true;0,false,false,Normal,0';
 
 /** Draw one candidate set for every revealed opposing Pokémon, in proportion to its probability. */
 export function sampleWorld(s: BattleState, ourSide: SideId, random: () => number = Math.random): World {
@@ -112,7 +112,9 @@ function pokemon(p: PokemonState, set: Candidate | undefined, known: boolean, us
     stats.atk, stats.def, stats.spa, stats.spd, stats.spe, status[p.status ?? ''] ?? 'None',
     // The engine's Rest counter starts at 3 and wakes on 1, one step per turn spent asleep.
     p.sleepFromRest ? Math.max(1, 3 - (p.sleepTurns ?? 0)) : 0, p.sleepTurns ?? 0, species.weightkg,
-    ...moves, false, p.terastallized || (p.fainted && teraSpent), p.teraType ?? set?.teraType ?? 'Normal'].join(',');
+    ...moves, false, p.terastallized || (p.fainted && teraSpent), p.teraType ?? set?.teraType ?? 'Normal',
+    // Damaging hits taken, which the engine's Rage Fist adds 50 base power for, up to six.
+    Math.min(6, p.hitsTaken ?? 0)].join(',');
 }
 
 /** What our side may actually do this turn, from the request; the engine offers its own options otherwise. */
@@ -131,7 +133,7 @@ function side(s: BattleState, sideId: SideId, known: boolean, world: World, lega
   // slots not yet revealed stay placeholders.
   const slots = [...team.map(p => pokemon(p, known ? undefined : world.sets.get(p.id), known, p.id === v.activeId ? legal?.moves : undefined, unshown)),
     ...(known ? [] : world.unrevealed.map(u => pokemon(u.pokemon, u.set, false)))].slice(0, 6);
-  const filler = spent ? PLACEHOLDER.replace(/,false,Normal$/, ',true,Normal') : PLACEHOLDER;
+  const filler = spent ? PLACEHOLDER.replace(/,false,Normal,0$/, ',true,Normal,0') : PLACEHOLDER;
   const written = slots.map(x => x ?? filler);
   while (written.length < 6) written.push(filler);
   const active = Math.max(0, team.findIndex(p => p.id === v.activeId));

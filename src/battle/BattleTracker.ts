@@ -39,7 +39,9 @@ export class BattleTracker {
   private makePokemon(ident: string, details: string): PokemonState {
     const side = sideId(ident)!;
     return { id: `${side}-${++this.nextId}`, ident: canonicalIdent(ident), slot: null, details,
-      ...(this.state.turn === 0 ? { hitsTaken: 0 } : {}), transformedInto: null, knownMoves: [], copiedMoves: [], stats: {}, volatiles: {}, baseAbility: null, abilitySuppressed: false,
+      // Every Pokémon is first seen before it can be hit (leads at turn 0, the rest on their first switch-in, and a
+      // rejoin replays the battle from the start), so its hits are counted from zero; Rage Fist reads the count.
+      hitsTaken: 0, transformedInto: null, knownMoves: [], copiedMoves: [], stats: {}, volatiles: {}, baseAbility: null, abilitySuppressed: false,
       species: speciesFromDetails(details), hpPercent: null, hpPrecision: 'unknown', status: null,
       fainted: false, boosts: {}, revealedMoves: [], ability: null, item: null, teraType: null, terastallized: false,
       activeSinceTurn: null, lastActiveTurn: null, moveUses: {}, movePP: {}, consecutiveProtects: 0,

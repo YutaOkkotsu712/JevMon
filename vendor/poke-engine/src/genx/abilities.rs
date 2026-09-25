@@ -967,6 +967,30 @@ pub fn ability_after_damage_hit(
                 attacking_side.side_conditions.toxic_spikes += 1;
             }
         }
+        Abilities::ANGERSHELL => {
+            // Dropping below half HP: +1 Attack, Special Attack and Speed, -1 Defense and Special Defense.
+            if damage_dealt > 0
+                && defending_pkmn.hp < defending_pkmn.maxhp / 2
+                && defending_pkmn.hp + damage_dealt >= defending_pkmn.maxhp / 2
+            {
+                for (stat, amount) in [
+                    (PokemonBoostableStat::Attack, 1),
+                    (PokemonBoostableStat::SpecialAttack, 1),
+                    (PokemonBoostableStat::Speed, 1),
+                    (PokemonBoostableStat::Defense, -1),
+                    (PokemonBoostableStat::SpecialDefense, -1),
+                ] {
+                    apply_boost_instruction(
+                        defending_side,
+                        &stat,
+                        &amount,
+                        &side_ref.get_other_side(),
+                        &side_ref.get_other_side(),
+                        instructions,
+                    );
+                }
+            }
+        }
         Abilities::BERSERK => {
             if damage_dealt > 0
                 && defending_pkmn.hp < defending_pkmn.maxhp / 2

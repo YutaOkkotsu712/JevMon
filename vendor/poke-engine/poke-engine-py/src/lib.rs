@@ -698,6 +698,7 @@ impl Into<Pokemon> for PyPokemon {
                 m2: moves_vec[2].clone().into(),
                 m3: moves_vec[3].clone().into(),
             },
+            times_attacked: 0,
         }
     }
 }

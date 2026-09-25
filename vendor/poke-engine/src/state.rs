@@ -874,6 +874,8 @@ pub struct Pokemon {
     pub terastallized: bool,
     pub tera_type: PokemonType,
     pub moves: PokemonMoves,
+    /// Damaging hits taken, which Rage Fist adds 50 base power for each of (up to 350); it survives switching out.
+    pub times_attacked: i8,
 }
 
 impl Default for Pokemon {
@@ -908,6 +910,7 @@ impl Default for Pokemon {
                 m2: Default::default(),
                 m3: Default::default(),
             },
+            times_attacked: 0,
         }
     }
 }
@@ -964,7 +967,7 @@ impl Pokemon {
             self.evs.0, self.evs.1, self.evs.2, self.evs.3, self.evs.4, self.evs.5
         );
         format!(
-            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
             self.id,
             self.level,
             self.types.0.to_string(),
@@ -994,6 +997,7 @@ impl Pokemon {
             self.mega_evolved,
             self.terastallized,
             self.tera_type.to_string(),
+            self.times_attacked,
         )
     }
 
@@ -1048,6 +1052,8 @@ impl Pokemon {
             mega_evolved: split[26].parse::<bool>().unwrap(),
             terastallized: split[27].parse::<bool>().unwrap(),
             tera_type: PokemonType::from_str(split[28]).unwrap(),
+            // Optional, so states written before the field existed still load.
+            times_attacked: split.get(29).map_or(0, |v| v.parse::<i8>().unwrap()),
         }
     }
 }
@@ -1904,6 +1910,9 @@ impl State {
                 &instruction.move_index,
                 instruction.move_change,
             ),
+            Instruction::ChangeTimesAttacked(instruction) => {
+                self.get_side(&instruction.side_ref).get_active().times_attacked += instruction.amount
+            }
             Instruction::ChangeWish(instruction) => {
                 self.set_wish(&instruction.side_ref, instruction.wish_amount_change);
             }
@@ -2088,6 +2097,9 @@ impl State {
                 &instruction.move_index,
                 -instruction.move_change,
             ),
+            Instruction::ChangeTimesAttacked(instruction) => {
+                self.get_side(&instruction.side_ref).get_active().times_attacked -= instruction.amount
+            }
             Instruction::Heal(instruction) => {
                 self.damage(&instruction.side_ref, instruction.heal_amount)
             }

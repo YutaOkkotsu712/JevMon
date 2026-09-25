@@ -265,6 +265,10 @@ pub fn modify_choice(
         Choices::JUDGMENT => {
             attacker_choice.move_type = attacking_side.get_active_immutable().types.0;
         }
+        Choices::RAGEFIST => {
+            let hits = attacking_side.get_active_immutable().times_attacked.clamp(0, 6);
+            attacker_choice.base_power = 50.0 + 50.0 * hits as f32;
+        }
         Choices::MULTIATTACK => {
             attacker_choice.move_type = attacking_side.get_active_immutable().types.0;
         }
