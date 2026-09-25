@@ -2049,3 +2049,18 @@ Tests: 408 pass.
 - Decisions record `providerSkipped`, and the live view shows "Jev: not asked".
 - One new test. It covers a decisive search, a split search that still asks, 0 turning the skip off, and a single legal
   action. 422 pass.
+
+## `npm run review` (2026-09-25)
+
+- `scripts/review.mjs` runs the checks that found most of today's misplays by hand, over the last N battles. It flags:
+  - `guard-overruled-both`: a guard skipped the move Jev and the search both chose, when the search preferred it by
+    at least 0.05;
+  - `guard-vs-search`: a guard skipped the search's choice for one it rated at least 0.1 lower;
+  - `knockout-passed`: a certain first-strike knockout was passed up;
+  - `did-nothing`: our move was immune or failed;
+  - `fainted-on-entry`: a switch-in at half HP or more fainted before it acted;
+  - `repeated-status`: the same status move three turns running at full HP.
+- Each battle also gets a luck line, so bad luck is not mistaken for a misplay.
+- On the last 10 battles it gave 14 flags. They include Tail Slap, No Retreat, Kingdra's Dragon Dance over Outrage on
+  turn 12, the Outrage into Mimikyu, the Dragapult sacrifice and the Strength Sap loop: every case the manual review
+  found. Deliberate low-HP sacrifices are left out.

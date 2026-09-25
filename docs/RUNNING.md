@@ -362,6 +362,17 @@ why. Start it as usual and open <http://127.0.0.1:8733>. It shows:
 `npm run view` serves all of this from the logs without the bot, for when it is stopped or busy (a bench run, say):
 <http://127.0.0.1:8733>, or `-- --port 8736`.
 
+`npm run review` lists the turns in recent battles worth a second look (the last 10, `-- --last 30`, or
+`-- --game <battle number>`):
+- a guard skipping a move that Jev and the search both chose, or one the search clearly preferred;
+- a certain first-strike knockout passed up;
+- a move that was immune or failed;
+- a healthy switch-in that fainted before it acted;
+- the same status move three turns running at full HP.
+
+It also gives each battle's luck: crits, misses, full paralysis and flinches on each side. It reads the logs through
+the current strategy code and makes no calls.
+
 `LIVE_VIEW_PORT` sets the port and `LIVE_VIEW_PORT=0` turns it off. The server binds
 to the loopback interface and serves only `GET`. The play-by-play reads only public
 battle lines, never our private request or the room's chat, and from a ladder
