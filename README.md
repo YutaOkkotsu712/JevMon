@@ -22,15 +22,12 @@ Playing as [TheNameIsJev](https://pokemonshowdown.com/users/thenameisjev) on the
 
 ```mermaid
 flowchart LR
-  R[Showdown request] --> S[State tracker]
-  S --> I[Set inference]
-  I --> P[Payload:<br/>damage, KO odds,<br/>turn order, matchups]
-  P --> J[Jev Choice:<br/>a probability<br/>per legal action]
-  I --> M[Tree search over<br/>16 sampled teams]
-  J --> B[Blend]
+  S["Request, state<br/>and set inference"] --> P["Payload for<br/>each legal action"]
+  P --> J["Jev Choice:<br/>probabilities"]
+  S --> M["Tree search over<br/>16 sampled teams"]
+  J --> B["Blend: 30% Jev,<br/>70% search"]
   M --> B
-  B --> G[Guards]
-  G --> V[Validate and send]
+  B --> G["Guards, then<br/>validate and send"]
 ```
 
 1. **Legal actions** come only from Showdown's private request, never from the bot's own reading of the battle.
