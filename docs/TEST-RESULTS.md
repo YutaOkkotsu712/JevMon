@@ -2454,3 +2454,22 @@ overruling the search, or a guard's fallback. Four fixes:
 - Over all logged games it changes 10 played decisions: Vigoroth ×4, Ho-Oh ×4 (badly poisoned), Vespiquen ×1 and
   Noivern ×1. Nine were in losses; in the Noivern win the search already rated Hurricane above Roost.
 - Test: paralysed Vigoroth is skipped; once cured it is not. 442 pass.
+
+## Illusion: a move whose type is set in battle is no clue (2026-09-26, audit-v17)
+
+- In 2687882615 our Oricorio-Sensu used Revelation Dance, which is Ghost-type in its hands, into a switching-in
+  Maushold-Four. A real Normal-type is immune to that. The immunity clue used the move's listed type, Normal, and
+  decided "a Normal move had no effect on a Normal-type, so this is a Zoroark-Hisui".
+  - From turn 5 the bot played against a Pokémon that wasn't there. It switched in Grimmsnarl, which Population Bomb
+    knocked out; it used Quiver Dance; it used a Tera Fighting Roost.
+  - The game was lost to a player rated 55 below us.
+- The clue now ignores moves whose type is set in battle: Revelation Dance, Tera Blast, Weather Ball, Judgment,
+  Multi-Attack, Techno Blast, Ivy Cudgel, Raging Bull, Aura Wheel, Hidden Power, Nature Power, Terrain Pulse, Tera
+  Starstorm and Struggle. It is also ignored when our attacker's ability rewrites move types: the -ate abilities,
+  Normalize and Liquid Voice.
+- Of the three unmasks since the detector shipped, the other two were right: a real Zoroark appeared in both games.
+- The test fails on the old tracker and passes now. 443 pass.
+- Ladder since audit-v11: 7 wins in 23 games against 11.8 expected, about 2 SD below. The guards added since then
+  barely fired: losingHealLoop never, the tightened asleepWhileTheyBoost once. The most active overrides were
+  freeKnockoutPassedUp (14 skips in 9 games, 3–6, by 0.071 of search score) and savingTheDoomed (9 skips in 7 games,
+  4–3). Twenty-three games cannot separate these from luck; a self-play A/B can.

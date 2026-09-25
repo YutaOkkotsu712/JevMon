@@ -19,6 +19,10 @@ const rememberNativeAbility = (pokemon: PokemonState, ability: string) => {
 };
 /** Marks a volatile announced by -singlemove, which ends when its holder next tries to move. */
 const singleMove = 'until-its-next-move';
+/** Moves whose type is set in battle rather than by the move, and abilities that rewrite a move's type. */
+const variableType = new Set(['revelationdance', 'terablast', 'weatherball', 'judgment', 'multiattack', 'technoblast', 'ivycudgel',
+  'ragingbull', 'aurawheel', 'hiddenpower', 'naturepower', 'terrainpulse', 'terastarstorm', 'struggle']);
+const typeRewriters = new Set(['pixilate', 'refrigerate', 'aerilate', 'galvanize', 'normalize', 'liquidvoice']);
 const endSingleMove = (p: PokemonState) => {
   for (const [key, v] of Object.entries(p.volatiles)) if (v.data === singleMove) delete p.volatiles[key];
 };
@@ -449,7 +453,13 @@ export class BattleTracker {
         if (pokemon && id !== this.state.mySide && this.lastMove?.side === this.state.mySide && !a.some(v => v.startsWith('[from]')) &&
             !pokemon.illusion && !pokemon.terastallized && !pokemon.transformedInto && !pokemon.volatiles.typechange) {
           const move = dex.moves.get(this.lastMove.move);
-          const form = move.exists && move.category !== 'Status' ? formFromImmunity([...dex.species.get(pokemon.species).types], move.type) : null;
+          // The clue needs the type the move really had. Revelation Dance, Tera Blast, Weather Ball and their kind take
+          // it from the user or the field, and -ate abilities rewrite it: Oricorio-Sensu's Ghost Revelation Dance, which
+          // a Normal Maushold is immune to, was read as a Normal move and named it a Zoroark-Hisui (2687882615).
+          const attacker = this.state.sides[this.state.mySide!]?.team.find(p => p.id === this.state.sides[this.state.mySide!]?.activeId);
+          const rewrites = !!attacker && !attacker.abilitySuppressed && typeRewriters.has(effectId(attacker.ability ?? ''));
+          const fixed = move.exists && !variableType.has(move.id) && !rewrites;
+          const form = fixed && move.category !== 'Status' ? formFromImmunity([...dex.species.get(pokemon.species).types], move.type) : null;
           if (form) this.unmask(pokemon, form, `${move.name} had no effect on it`);
         }
         break;

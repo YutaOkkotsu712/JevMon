@@ -347,3 +347,15 @@ test('a berry eaten this turn is not handed back by the line that reports its he
   feed(t, '|-damage|p2a: Drifblim|55/100|[from] item: Life Orb\n|turn|7');
   assert.equal(drifblim.item, 'Life Orb', 'an item seen on a later turn is still revealed');
 });
+
+test('an immunity to a move whose type is set in battle is no Illusion clue', () => {
+  // 2687882615: our Oricorio-Sensu's Revelation Dance is Ghost; a real Maushold is immune, but read as a Normal move it
+  // named the Maushold a Zoroark-Hisui, and the bot played against a Pokémon that was not there.
+  const t = tracker();
+  feed(t, `|request|${JSON.stringify({ active: [{ moves: [] }], side: { id: 'p1', pokemon: [{ ident: 'p1: Oricorio', details: 'Oricorio-Sensu, L85, M', active: true, condition: '250/250', baseAbility: 'Dancer', item: 'heavydutyboots', moves: ['revelationdance', 'hurricane', 'quiverdance', 'roost'] }] } })}`);
+  feed(t, '|switch|p1a: Oricorio|Oricorio-Sensu, L85, M|250/250\n|switch|p2a: Maushold|Maushold-Four, L76|100/100');
+  feed(t, '|move|p1a: Oricorio|Revelation Dance|p2a: Maushold\n|-immune|p2a: Maushold\n|turn|5');
+  const maushold = t.state.sides.p2.team.find(p => p.species.startsWith('Maushold'))!;
+  assert.equal(maushold.illusion, undefined, 'a Ghost move on a Normal-type explains itself');
+  assert.equal(maushold.species, 'Maushold-Four');
+});
