@@ -59,8 +59,13 @@ export function cyclicSwitch(s: BattleState, side: SideId, target: PokemonState)
   // without seeing what it faces. Blastoise, sent in blind as Wo-Chien replaced Pawmot, was held in to be paralysed.
   if (ours.team.some(p => p.fainted && p.lastActiveTurn === arrived)) return null;
   const facing = foe?.activeSinceTurn;
-  // A new opponent since we arrived means this is a fresh matchup, not a retreat from our own choice.
-  if (!foe || typeof facing !== 'number' || facing > arrived) return null;
+  // A new opponent since we arrived means this is a fresh matchup, not a retreat from our own choice. One that came in
+  // on the same turn counts too: both switches were chosen blind, so we never picked this Pokémon for this opponent.
+  // Sawsbuck, sent to face Latias as Morpeko came in, was held in against Aura Wheel by this guard, though the search
+  // put 68% of its visits and Jev 62% on Florges, and was knocked out (2687703481). A pivot chosen after their switch
+  // is the exception: its replacement was picked seeing them.
+  const pivotedIn = (ours.switches ?? []).some(x => x.turn === arrived && x.to === me.species && !!x.via);
+  if (!foe || typeof facing !== 'number' || facing > arrived || (facing === arrived && !pivotedIn)) return null;
   if (incomingThreats(s, me, side, 1)?.conditionalKO === 'all-sampled-rolls') return null;
   const returning = typeof target.lastActiveTurn === 'number' && s.turn - target.lastActiveTurn <= 2;
   return returning

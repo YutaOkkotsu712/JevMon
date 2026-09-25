@@ -150,6 +150,25 @@ test('a healing move at full HP is skipped, and only then', () => {
   void hurt;
 });
 
+test('a heal at full HP is kept when a faster opponent hits first, and outhealed leaves our heals alone', () => {
+  // 2687703481: Florges at full HP, slower than Latias. A heal after Psyshock restores it; Draco Meteor cannot touch
+  // a Fairy, so with only that shown the heal is idle.
+  const florges = [ours('Florges', 85, ['Moonblast', 'Calm Mind', 'Synthesis', 'Tera Blast'], 'Flower Veil', 'Leftovers', 'Ground'),
+    ours('Ditto', 87, ['Transform'], 'Imposter', 'Choice Scarf', 'Steel')];
+  const b = battle(florges, 'Latias', 79);
+  b.feed('|move|p2a: Foe|Draco Meteor|p1a: Florges'); b.feed('|-immune|p1a: Florges'); b.feed('|turn|2');
+  assert.deepEqual(labels(decide(b), healAtFullHP(decide(b))), ['Synthesis'], 'only an attack we are immune to is shown');
+  b.feed('|move|p2a: Foe|Psyshock|p1a: Florges'); b.feed('|turn|3');
+  assert.equal(healAtFullHP(decide(b)).size, 0, 'Latias moves first with Psyshock, so Synthesis restores that hit');
+  // Two Recovers against Florges, each more than Moonblast does into +4 Special Defense: the attacks are outhealed,
+  // and Synthesis is not an attack.
+  b.feed('|-boost|p2a: Foe|spd|4');
+  for (const turn of [4, 5]) { b.feed('|-damage|p2a: Foe|50/100'); b.feed('|move|p2a: Foe|Recover|p2a: Foe'); b.feed('|-heal|p2a: Foe|100/100'); b.feed(`|turn|${turn}`); }
+  const input = decide(b), stalled = labels(input, outhealed(input));
+  assert.ok(stalled.includes('Moonblast'), `the attacks are skipped: ${stalled.join(', ')}`);
+  assert.ok(!stalled.includes('Synthesis'), 'our own heal is left to healAtFullHP and the search');
+});
+
 import { incomingThreats } from '../src/strategy/threat.js';
 import { damageRange } from '../src/strategy/damage.js';
 import { speedSummary } from '../src/strategy/speed.js';

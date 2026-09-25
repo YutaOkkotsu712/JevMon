@@ -57,6 +57,8 @@ test('a replacement for a fainted Pokemon has spent no turn, so leaving it is no
   const seviper = b.state.sides.p1.team.find(p => p.species === 'Seviper')!;
   assert.equal(cyclicSwitch(b.state, 'p1', seviper), null);
   b.state.sides.p1.team[0]!.fainted = false;
+  // Facing an opponent that was already there, the same arrival by a chosen switch is still held in.
+  b.state.sides.p2.team.find(p => p.species === 'Wo-Chien')!.activeSinceTurn = 1;
   assert.ok(cyclicSwitch(b.state, 'p1', seviper), 'the same arrival by a chosen switch is still held in');
 });
 
@@ -159,4 +161,44 @@ test('two repeated switch pairs are stopped before a nearly spent answer is sent
   assert.match(cyclicSwitch(b.state, 'p1', target)!, /already led twice/);
   target.hpPercent = 80;
   assert.equal(cyclicSwitch(b.state, 'p1', target), null, 'a healthy target leaves the strategic choice open');
+});
+
+test('a Pokémon that came in as the opponent switched faces a new matchup, unless a pivot chose it after', () => {
+  // 2687703481: Sawsbuck was sent to face Latias as Morpeko came in; held in against Aura Wheel, it was knocked out
+  // where the search and Jev both switched to Florges.
+  const b = battle([bronzong(), dragapult()], 'Amoonguss');
+  b.feed('|turn|2');
+  b.feed(`|switch|p1a: Dragapult|Dragapult, L78, M|${b.state.sides.p1.team[1]!.exactHP!.max}/${b.state.sides.p1.team[1]!.exactHP!.max}`);
+  b.feed('|switch|p2a: Wo-Chien|Wo-Chien, L83|100/100');
+  b.feed('|turn|3');
+  const bronzongBack = b.state.sides.p1.team[0]!;
+  assert.equal(cyclicSwitch(b.state, 'p1', bronzongBack), null, 'both chose blind, so this is a fresh matchup');
+  b.state.sides.p1.switches!.at(-1)!.via = 'U-turn';
+  assert.ok(cyclicSwitch(b.state, 'p1', bronzongBack), 'a U-turn picked Dragapult after seeing Wo-Chien, so leaving undoes it');
+});
+
+test('a guard\'s fallback does not spend a Tera the search visited less than the plain move', async () => {
+  // 2687703481: Sawsbuck's switch skipped, the fallback was Jev's Double-Edge + Tera Normal, on 3% of the search's visits
+  // against the plain move's 5%, and Tera went for nothing.
+  const b = pingPong();
+  const records: DecisionRecord[] = [];
+  const provider: DecisionProvider = { async chooseAction(): Promise<DecisionResult> {
+    return { chosenAction: 'switch-1', provider: 'jev', confidence: 0.5,
+      probabilities: { 'switch-1': 0.5, 'move-1-terastallize': 0.45, 'move-1': 0.03, 'move-2': 0.02 } };
+  } };
+  const values = { 'switch-1': { visitShare: 0.7, meanScore: 0.5 }, 'move-1': { visitShare: 0.15, meanScore: 0.48 },
+    'move-1-terastallize': { visitShare: 0.1, meanScore: 0.45 }, 'move-2': { visitShare: 0.05, meanScore: 0.42 } };
+  const loop = new DecisionLoop({ room, username: 'Test Bot', dryRun: true, provider, send: () => true,
+    state: () => b.state, onStatus: () => {}, onDecision: r => records.push(r),
+    search: { mode: 'blend', weight: 0.7, overrideMargin: 0.03, timeoutMs: 1000, run: async () => ({ values, worldsSearched: 16, msTotal: 5 }) } });
+  loop.request(JSON.stringify({ rqid: 11,
+    active: [{ moves: [{ move: 'Shadow Ball', id: 'shadowball' }, { move: 'Draco Meteor', id: 'dracometeor' }], canTerastallize: 'Ghost' }],
+    side: { id: 'p1', name: 'Test Bot', pokemon: [
+      { ident: 'p1: Bronzong', details: 'Bronzong, L88', condition: '261/261', active: false },
+      { ident: 'p1: Dragapult', details: 'Dragapult, L78, M', condition: '265/265', active: true }] } }));
+  await new Promise(resolve => setTimeout(resolve, 30));
+  loop.stop();
+  assert.equal(records.length, 1);
+  assert.equal(records[0]!.skippedCyclicSwitch?.from, 'switch-1');
+  assert.equal(records[0]!.selectedAction.id, 'move-1', 'Shadow Ball without the Tera the search did not back');
 });

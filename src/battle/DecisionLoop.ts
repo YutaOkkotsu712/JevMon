@@ -58,7 +58,7 @@ export interface DecisionLoopOptions {
      * decisions, half of them by less than 0.03, three times trading a certain knockout for a heal or a boost.
      */
     overrideMargin?: number;
-    /** Whether the provider sees the search's values; in blend, leaving them out keeps the two opinions independent. */
+    /** Whether the provider sees the search's values. Left out in blend, the two opinions stay independent, which lost more. */
     inPayload?: boolean;
     /**
      * In blend, the visit share at which the provider is not asked at all: with that much of the search on one action the
@@ -250,6 +250,14 @@ export class DecisionLoop {
       if (blend.pick) { ({ chosen, decidedBy, nearTie, teraHeldBack } = blend.pick); ranking = blended; }
       // A guard's fallback must not hand the held-back Tera straight back.
       if (teraHeldBack && ranking) ranking = { ...ranking, [teraHeldBack.from]: 0 };
+      // Nor spend a Tera the search did not back over the same move without it. Sawsbuck's switch skipped, the fallback
+      // was Jev's Double-Edge + Tera Normal, on 3% of visits against the plain move's 5%, and Tera went for nothing
+      // (2687703481).
+      if (ranking) for (const a of actions) {
+        const plain = a.id.endsWith('-terastallize') ? a.id.slice(0, -'-terastallize'.length) : null;
+        if (plain && actions.some(x => x.id === plain) && search.values[plain]?.meanScore != null &&
+            (search.values[plain]?.visitShare ?? 0) >= (search.values[a.id]?.visitShare ?? 0)) ranking = { ...ranking, [a.id]: 0 };
+      }
     }
     let action = validateAction(request, chosen);
     let pivoted: DecisionRecord['pivotInsteadOfSwitch'];

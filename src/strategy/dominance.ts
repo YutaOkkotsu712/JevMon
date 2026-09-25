@@ -799,6 +799,10 @@ export function outhealed(input: DecisionInput) {
     // Knock Off breaks it only while there is an item to take: after the first hit it is one more attack.
     const takesItem = move.id === 'knockoff' && foe.item !== '';
     if (!move.exists || move.status || stallBreakers.has(move.id) || takesItem || move.selfSwitch || (move.target === 'self' && (move.boosts || move.self?.boosts))) continue;
+    // Our own heal is not an attack being outhealed: whether it restores anything is healAtFullHP's to judge. Skipped
+    // here, with 'cannot outpace' as the reason, Florges's Synthesis (the search's pick on 53% of visits) became a switch
+    // to Ditto twice against a Calm Mind Latias (2687703481).
+    if (move.category === 'Status' && move.flags?.heal) continue;
     result.set(action.id, { by: 'stall', reason: `${foe.species} has healed ${healed} times against ${me.species}, and each heal restores ${heal}% while our best hit, ${bestName}, does at most ${best}%; ${move.name} cannot outpace that, so switch or break the stall instead` });
   }
   return result;
@@ -1438,6 +1442,13 @@ export function healAtFullHP(input: DecisionInput) {
   const ours = s.sides[s.mySide];
   const me = ours.team.find(p => p.id === ours.activeId);
   if (!me || me.fainted || (me.hpPercent ?? 0) < 100) return result;
+  const theirs = s.sides[s.mySide === 'p1' ? 'p2' : 'p1'];
+  const foe = theirs.team.find(p => p.id === theirs.activeId);
+  // An attack they have shown that can hurt us: moving first, it lands before the heal, which then restores it.
+  const hurts = !!foe && !foe.fainted && foe.revealedMoves.some(m => {
+    const move = dex.moves.get(m);
+    return move.exists && move.category !== 'Status' && (typeEffectiveness(move.type, pokemonTypes(me)) ?? 1) > 0;
+  });
   for (const action of input.legalActions) {
     if (action.kind !== 'move') continue;
     const slot = Number(action.command.split(' ')[1]) - 1;
@@ -1445,6 +1456,8 @@ export function healAtFullHP(input: DecisionInput) {
     const heals = move.exists && move.category === 'Status' && move.target === 'self' && (!!move.heal || ['rest', 'moonlight', 'synthesis', 'morningsun', 'shoreup'].includes(move.id));
     // A heal that also boosts or cures does something at full HP too, so only the pure heals are skipped.
     if (!heals || move.boosts || move.self?.boosts) continue;
+    // Nor is a heal idle when a faster opponent hits first: it restores that hit, as the search reckons it.
+    if (hurts && move.id !== 'rest' && turnOrder(s, me, move.name)?.order === 'theirs-first') continue;
     result.set(action.id, { by: 'full', reason: `${me.species} is at full HP, so ${move.name} restores nothing` });
   }
   return result;
