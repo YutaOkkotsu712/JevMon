@@ -1,3 +1,4 @@
+import { id } from '../pokemon/data.js';
 import { DecisionLoop, type DecisionLoopOptions, type DecisionRecord } from './DecisionLoop.js';
 import type { DecisionProvider } from '../decisions/DecisionProvider.js';
 import { BattleTracker } from './BattleTracker.js';
@@ -15,7 +16,8 @@ interface Options {
   play?: { dryRun: boolean; timeoutMs?: number; provider?: DecisionProvider; search?: DecisionLoopOptions['search'];
     guards?: boolean; onDecision: (record: DecisionRecord, state: BattleState) => void };
   /** Called once when this battle is decided, so a caller can free the room and take the next challenge. */
-  onFinished?: (outcome: 'win' | 'tie') => void;
+  /** Whether we won, going by the winner's name on the result line; 'tie' for a tie. */
+  onFinished?: (outcome: 'won' | 'lost' | 'tie') => void;
 }
 /** Tracks one room; optional decisions use private server requests, never inferred state. */
 export class BattleManager {
@@ -99,7 +101,9 @@ export class BattleManager {
     if (message.type === 'win' || message.type === 'tie') {
       this.loop?.stop();
       // Once only: a room can repeat the result line, and rearming twice would take two challenges.
-      if (!this.finished) { this.finished = true; this.options.onFinished?.(message.type === 'tie' ? 'tie' : 'win'); }
+      // `|win|` names the winner, whoever it is: the log used to say "battle finished (win)" after losses too.
+      const won = !!this.options.username && id(message.data) === id(this.options.username);
+      if (!this.finished) { this.finished = true; this.options.onFinished?.(message.type === 'tie' ? 'tie' : won ? 'won' : 'lost'); }
     }
     if (message.type === 'request' && this.formatConfirmed && this.singlesConfirmed && !this.tracker.state.ended) {
       this.askForTimer();

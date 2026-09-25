@@ -131,5 +131,12 @@ test('a finished battle is announced exactly once', () => {
   feed('win', 'Someone');
   feed('win', 'Someone');
   feed('tie', '');
-  assert.deepEqual(finished, ['win'], 'a repeated result line must not consume a second challenge');
+  assert.deepEqual(finished, ['lost'], 'a repeated result line must not consume a second challenge');
+  const ours: string[] = [];
+  const again = new BattleManager({ room: 'battle-gen9randombattle-2', username: 'Jev Bot',
+    send: () => true, onStatus: () => {}, onSnapshot: () => {}, onFinished: outcome => ours.push(outcome) });
+  again.ready();
+  again.handle({ room: 'battle-gen9randombattle-2', type: 'init', data: 'battle' });
+  again.handle({ room: 'battle-gen9randombattle-2', type: 'win', data: 'JevBot' });
+  assert.deepEqual(ours, ['won'], 'names compare as Showdown ids');
 });

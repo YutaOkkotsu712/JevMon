@@ -81,7 +81,8 @@ function main(): void {
       onSnapshot: (event, state) => {
         logger.snapshot(event, state);
         live?.snapshot(event, state, room);
-        log(`battle ${event}: turn ${state.turn}, known team sizes ${state.sides.p1.team.length}/${state.sides.p2.team.length}`);
+        // The snapshot named `win` follows any result line, a loss included, so the log calls it the end.
+        log(`battle ${event === 'win' ? 'ended' : event}: turn ${state.turn}, known team sizes ${state.sides.p1.team.length}/${state.sides.p2.team.length}`);
       },
       onFinished: outcome => {
         log(`battle finished (${outcome}); leaving ${room}`);
