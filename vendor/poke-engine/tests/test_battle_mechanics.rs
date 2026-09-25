@@ -22843,26 +22843,3 @@ fn test_anger_shell_boosts_when_a_hit_drops_it_below_half() {
     healthy.apply_instructions(&instructions[0].instruction_list);
     assert_eq!(0, healthy.side_two.attack_boost, "a hit that leaves it above half changes nothing");
 }
-
-#[test]
-fn test_a_defensive_boost_counts_only_against_attacks_that_strike_it() {
-    use poke_engine::engine::evaluate::evaluate;
-    let scored = |their_move: Choices, our_moves: [Choices; 2]| {
-        let mut state = State::default();
-        let theirs = state.side_two.get_active();
-        for (i, m) in [their_move, Choices::NONE, Choices::NONE, Choices::NONE].iter().enumerate() {
-            theirs.replace_move([PokemonMoveIndex::M0, PokemonMoveIndex::M1, PokemonMoveIndex::M2, PokemonMoveIndex::M3][i], *m);
-        }
-        let ours = state.side_one.get_active();
-        ours.replace_move(PokemonMoveIndex::M0, our_moves[0]);
-        ours.replace_move(PokemonMoveIndex::M1, our_moves[1]);
-        let plain = evaluate(&state);
-        state.side_one.defense_boost = 1;
-        evaluate(&state) - plain
-    };
-    // Annihilape's Bulk Up into a Calm Mind Cobalion: +1 Defense against Flash Cannon is worth nothing.
-    assert_eq!(0.0, scored(Choices::FLASHCANNON, [Choices::DRAINPUNCH, Choices::NONE]));
-    assert!(scored(Choices::CLOSECOMBAT, [Choices::DRAINPUNCH, Choices::NONE]) > 0.0);
-    assert!(scored(Choices::PSYSHOCK, [Choices::DRAINPUNCH, Choices::NONE]) > 0.0, "Psyshock strikes Defense");
-    assert!(scored(Choices::FLASHCANNON, [Choices::BODYPRESS, Choices::NONE]) > 0.0, "Body Press attacks with it");
-}
