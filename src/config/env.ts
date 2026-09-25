@@ -117,11 +117,12 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env) {
     overrideMargin: (() => { const raw = env.SEARCH_OVERRIDE_MARGIN?.trim(), value = raw ? Number(raw) : 0.03;
       if (!Number.isFinite(value) || value < 0 || value > 1) throw new Error('SEARCH_OVERRIDE_MARGIN must be between 0 and 1');
       return value; })(),
-    // Whether Jev sees the search's shares. In blend they are mixed into the choice afterwards, so showing them to Jev as
-    // well counted the search twice and made Jev's view a copy of it; unset, they are shown only in advise mode.
+    // Whether Jev sees the search's shares; unset, it does, in blend as in advise. Hiding them in blend keeps Jev's view
+    // independent, but on the ladder Jev with them won 147 of 234 games (63%) and without them 24 of 50 (48%), and
+    // without them Jev's lean against setup decides more close calls against the search.
     inPayload: (() => { const raw = env.SEARCH_IN_PAYLOAD?.trim();
       if (raw !== undefined && raw !== '' && !['true', 'false'].includes(raw)) throw new Error('SEARCH_IN_PAYLOAD must be true or false');
-      return raw === 'true' ? true : raw === 'false' ? false : searchMode === 'advise'; })() };
+      return raw !== 'false'; })() };
   return { jev: { apiKey, model, maxCalls, timeoutMs, callsInDryRun,
     ...(inputRate === undefined ? {} : { inputUsdPerMillion: inputRate }),
     ...(outputRate === undefined ? {} : { outputUsdPerMillion: outputRate }) },

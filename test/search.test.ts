@@ -263,9 +263,10 @@ test('in blend the provider does not see the search it is blended with, unless a
   }
   assert.deepEqual(seen, [false, true]);
   assert.deepEqual(records.map(r => r.search?.inPayload), [false, true], 'each decision records which it was, for comparing the two');
-  assert.equal(readConfig({ SEARCH_MODE: 'blend' }).search.inPayload, false);
+  // Shown by default in blend too: 63% of 234 ladder games with the shares, 48% of 50 without.
+  assert.equal(readConfig({ SEARCH_MODE: 'blend' }).search.inPayload, true);
   assert.equal(readConfig({ SEARCH_MODE: 'advise' }).search.inPayload, true);
-  assert.equal(readConfig({ SEARCH_MODE: 'blend', SEARCH_IN_PAYLOAD: 'true' }).search.inPayload, true);
+  assert.equal(readConfig({ SEARCH_MODE: 'blend', SEARCH_IN_PAYLOAD: 'false' }).search.inPayload, false);
 });
 
 test('the provider is not asked when the search already decides the move, which saves its credit', async () => {

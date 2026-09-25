@@ -307,7 +307,7 @@ SEARCH_MODE=blend      # off, advise (its verdict goes into Jev's payload) or bl
 SEARCH_WEIGHT=0.7      # in blend, the search's share of the choice against Jev's probabilities
 SEARCH_WORLDS=16
 SEARCH_MS_PER_WORLD=200
-SEARCH_IN_PAYLOAD=     # unset: Jev sees the search only in advise mode; true shows it in blend too, to compare
+SEARCH_IN_PAYLOAD=     # unset: Jev sees the search's shares in every mode; false hides them in blend (48% of 50 ladder games, against 63% of 234)
 JEV_SKIP_AT_SEARCH_SHARE=0.7  # in blend, Jev is not asked when the search puts this share of its visits on one action; 0 always asks
 ```
 

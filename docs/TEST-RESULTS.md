@@ -2288,3 +2288,49 @@ Tests: 408 pass.
   joined before any search or challenge once the current one ends.
 - One new ladder test covers the restart order and the silent server. 429 TypeScript tests pass. Preflight over the
   last 10 games gives no warnings.
+
+## Guards and fallbacks that pushed Florges and Ditto around (2026-09-25, audit-v9)
+
+The loss in 2687703481 had Florges and Ditto swapping in and out against a Calm Mind Latias. Each swap was a guard
+overruling the search, or a guard's fallback. Four fixes:
+
+- **`outhealed` leaves our own heals alone.** It skips attacks that cannot outpace an opponent's heals, but it also
+  skipped Florges's Synthesis, the search's pick on 53% and 62% of visits, with "cannot outpace" as the reason. The
+  fallback was a switch to Ditto both times. Status heals are now `healAtFullHP`'s to judge.
+- **`healAtFullHP` allows for a faster hit.** It no longer skips a heal when the opponent surely moves first with an
+  attack it has shown that can hurt us, since the heal then restores that hit. Rest is still skipped. An attack we are
+  immune to does not count, so Florges's Synthesis against Latias's Draco Meteor alone is still idle. In the last 40
+  games this keeps 3 heals the guard had skipped live. Two were real (Boomburst took 35% before Ho-Oh's turn, Wave
+  Crash 54% before Noctowl's). The third was our Scarf Ditto, which the next fix handles.
+- **A same-turn switch is a fresh matchup for `cyclicSwitch`.** The guard held Sawsbuck in against Morpeko, though the
+  search had 68% of its visits and Jev 62% on switching to Florges, because Morpeko arrived on the same turn as
+  Sawsbuck. Both switches were chosen blind, so Sawsbuck was never picked for Morpeko. It was knocked out by Aura
+  Wheel. A pivot that chose its replacement after the opponent's switch is still held.
+- **A guard's fallback keeps the Tera rule.** It no longer plays a Tera the search visited less than the same move
+  without it. Sawsbuck's fallback was Jev's Double-Edge + Tera Normal, on 3% of visits against the plain move's 5%.
+- Tests: the Florges heals under both guards, the same-turn and pivot cycles, and a DecisionLoop fallback test, which
+  fails without the change. 433 pass. Preflight over 40 games gives no warnings.
+
+## Our transformed Pokémon keeps the stats it copied (2026-09-25)
+
+- Showdown's request carries a transformed Pokémon's own stats. The tracker wrote them over the copied ones, so our
+  Choice Scarf Ditto as Latias was modelled with Ditto's Speed and Special Attack. `turnOrder` put it behind the Latias
+  it outran, and the damage estimates and the engine gave it Ditto's weak hits.
+- Copied stats now survive the request. When the target is an opponent whose exact stats are unknown, they are worked
+  out at its level with the Random Battle spread: 85 EVs, 31 IVs, neutral nature. Only the rare set with 0 Attack or
+  Speed IVs differs. Until the first request, all estimates for the copy used to be dropped ("whose stats are not
+  known"); they now go ahead.
+
+## `SEARCH_IN_PAYLOAD` defaults to showing the search in blend too (2026-09-25)
+
+- `.env` had `SEARCH_IN_PAYLOAD=true` from 2026-09-24 14:57 UTC, which nobody meant to set. Every game since, the
+  climb into the top 100 included, was played with Jev seeing the search's shares.
+- Ladder records in blend:
+  - shown to Jev: 50 of 82 won (61%);
+  - shown, before the setting existed: 97 of 152 (64%);
+  - hidden: 24 of 50 (48%).
+- The hidden games all came on 2026-09-24, alongside other changes, so this is not a clean test. It is the evidence
+  there is, and it runs against the reason for hiding them (counting the search twice).
+- The default is now to show the shares in every mode, and `SEARCH_IN_PAYLOAD=false` hides them. The stray line in
+  `.env` is back to blank. Play is unchanged, since the default is what was running.
+- `INSTRUCTIONS_VERSION` is `2026-09-25-audit-v9`.
