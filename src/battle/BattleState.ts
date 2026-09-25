@@ -26,6 +26,8 @@ export interface PokemonState {
    * confusion, so after the first turn its next move is certain and after the second it is even odds.
    */
   rampage?: { move: string; turns: number };
+  /** A Zoroark found under a disguise (Illusion): what it looked like, restored when it leaves the field. */
+  illusion?: { species: string; details: string };
   /** Set only on a copy used for a calculation: the target of its attack has just switched in, so Stakeout applies. */
   stakeoutActive?: boolean;
   abilitySuppressed: boolean;

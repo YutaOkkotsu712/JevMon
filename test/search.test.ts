@@ -469,6 +469,32 @@ test('a pending Future Sight and an eaten Harvest berry reach the engine', () =>
   assert.equal(k[Number(k[6])]!.split(',')[8], 'NONE', 'knocked off, it has nothing to harvest');
 });
 
+test('a Zoroark under a disguise is found by a move or an immunity, and is searched as itself while it stays in', () => {
+  const team = [ourRow('Conkeldurr', 84, ['Mach Punch', 'Drain Punch', 'Knock Off', 'Ice Punch'], 'Guts', 'Flame Orb', 'Fighting'),
+    ourRow('Gengar', 82, ['Shadow Ball', 'Sludge Wave'], 'Cursed Body', 'Life Orb', 'Ghost')];
+  // A move no Snorlax set carries.
+  const byMove = battleFor(team, 'Snorlax', 84);
+  byMove.feed('|move|p2a: Foe|Bitter Malice|p1a: Conkeldurr'); byMove.feed('|turn|2');
+  assert.equal(byMove.foe().species, 'Zoroark-Hisui');
+  assert.equal(byMove.state.sides.p2.identityUncertain, true);
+  const two = engineStateOf(byMove.state, 'p1', worldOf(byMove.state, 'p1', () => 0.5)).state.split('/')[1]!.split('=');
+  assert.match(two[Number(two[6])]!, /^ZOROARKHISUI,80,Normal,Ghost,/, 'the search plays the Zoroark, at its own level');
+  byMove.feed('|switch|p2a: Snorlax|Snorlax, L84|100/100'); byMove.feed('|turn|3');
+  const left = byMove.state.sides.p2.team.find(p => p.illusion === undefined && p.revealedMoves.length === 0 && p.details.startsWith('Snorlax'));
+  assert.ok(left, 'switched out, the entry is a Snorlax again with none of the Zoroark\'s moves');
+  // Our attack meets an immunity the disguise's typing cannot explain.
+  const byImmunity = battleFor(team, 'Snorlax', 84);
+  byImmunity.feed('|move|p1a: Conkeldurr|Drain Punch|p2a: Foe'); byImmunity.feed('|-immune|p2a: Foe'); byImmunity.feed('|turn|2');
+  assert.equal(byImmunity.foe().species, 'Zoroark-Hisui');
+  // A real immunity, and one an ability explains, give nothing away.
+  const flying = battleFor(team, 'Corviknight', 84);
+  flying.feed('|move|p1a: Conkeldurr|Drain Punch|p2a: Foe'); flying.feed('|-immune|p2a: Foe|[from] ability: Wonder Guard'); flying.feed('|turn|2');
+  assert.equal(flying.foe().species, 'Corviknight');
+  const ghost = battleFor(team, 'Gholdengo', 84);
+  ghost.feed('|move|p1a: Conkeldurr|Drain Punch|p2a: Foe'); ghost.feed('|-immune|p2a: Foe'); ghost.feed('|turn|2');
+  assert.equal(ghost.foe().species, 'Gholdengo', 'a Ghost type is immune to Fighting on its own');
+});
+
 test('an opposing Choice lock reaches the engine as ours does', () => {
   const b = battleFor([ourRow('Gengar', 82, ['Shadow Ball', 'Sludge Wave', 'Focus Blast', 'Nasty Plot'], 'Cursed Body', 'Life Orb', 'Ghost')], 'Heracross', 83);
   b.feed('|move|p2a: Foe|Close Combat|p1a: Gengar'); b.feed('|-immune|p1a: Gengar'); b.feed('|turn|2');

@@ -2189,3 +2189,26 @@ Tests: 408 pass.
     Knock Off.
   - On logged positions only those with a Harvest user changed. Deployed; the previous binary is kept as
     `poke-engine.before-harvest`.
+
+## Illusion: finding a disguised Zoroark before the hit that breaks it (2026-09-25)
+
+- Zoroark and Zoroark-Hisui enter looking like the last Pokémon in their party. The tracker already re-identified one
+  when a damaging hit broke the disguise (`replace`); until then the bot played against the disguise.
+- Two clues now give it away sooner (`src/strategy/illusion.ts`):
+  - **A move the disguise can never carry and a Zoroark form can**, by the Random Battle movepools: Bitter Malice or
+    Poltergeist for Zoroark-Hisui, Dark Pulse, Encore, Psychic or Sludge Bomb for Zoroark. A move both forms carry is
+    settled by the moves already shown, with Zoroark-Hisui otherwise. Moves called by another move, and a transformed
+    user, are left out.
+  - **An unexplained immunity**: our attack had no effect where the disguise's typing would take it and a Zoroark
+    form's does not (Fighting, Normal or Ghost into Zoroark-Hisui; Psychic into Zoroark). Immunities from an ability
+    (`[from] ability`), and Terastallised, transformed or type-changed targets, are left out.
+- The Pokémon is then treated as that form while it stays in: species, and details at the form's Random Battle level,
+  so its sets, typing and stats reach the payload, the calculator and the search. The side is marked
+  `identityUncertain`, which quiets the guards that rely on identity, and a note joins `uncertainties`. On switching
+  out, the entry reverts to the disguise and loses the Zoroark's own moves, so the real Pokémon of that name is not
+  confused with it. The disguise returns on every switch-in.
+- Replayed over the logs: in 2686970208 the opponent's Zoroark, disguised as Chimecho, is found on turn 36, when our
+  Psychic Noise had no effect. The disguise broke on turn 44. The one other logged break was our own Zoroark, correctly
+  left alone.
+- One new test covering both clues, the revert on switch-out, and two non-triggers (Gholdengo's own Ghost immunity to
+  Fighting, and an immunity from an ability). 427 pass. The engine took all 830 logged positions.

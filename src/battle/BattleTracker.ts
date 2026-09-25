@@ -1,5 +1,6 @@
 import { dex, id as moveId } from '../pokemon/data.js';
 import { SubstituteTracker } from '../strategy/SubstituteTracker.js';
+import { displayedMoves, formFromImmunity, formFromMove, illusionLevel, type IllusionForm } from '../strategy/illusion.js';
 import { BattleEvidence } from '../strategy/BattleEvidence.js';
 import { createBattleState, type BattleState, type PokemonState } from './BattleState.js';
 import { canonicalIdent, isRecord, isStatus, parseCondition, sideId, speciesFromDetails } from '../showdown/parser.js';
@@ -51,6 +52,17 @@ export class BattleTracker {
     if (pokemon.lastSleepTurnCounted === this.state.turn) return;
     pokemon.sleepTurns++;
     pokemon.lastSleepTurnCounted = this.state.turn;
+  }
+  /** The last move used, by side, so an immunity can be traced to the attack that met it. */
+  private lastMove: { side: string; move: string } | null = null;
+  /** Treat a disguised Pokémon as the Zoroark form under it, until it leaves the field. */
+  private unmask(p: PokemonState, form: IllusionForm, clue: string) {
+    p.illusion = { species: p.species, details: p.details };
+    p.species = form;
+    p.details = `${form}, L${illusionLevel(form)}`;
+    const side = this.state.sides[p.id.startsWith('p1') ? 'p1' : 'p2'];
+    side.identityUncertain = true;
+    this.uncertain(`Illusion: ${clue}, so the ${p.illusion.species} is a ${form}`);
   }
   private find(ident: string): PokemonState | undefined {
     const id = sideId(ident);
@@ -123,6 +135,12 @@ export class BattleTracker {
           facing: facing && !facing.fainted ? facing.species : null, afterFaint: !!previous?.fainted, dragged: message.type === 'drag', via: pivot };
         side.switches = [...(side.switches ?? []), record].slice(-40);
         if (previous) {
+          // A Zoroark found under a disguise leaves with it; whoever comes in under that name next may be the real one.
+          if (previous.illusion) {
+            previous.revealedMoves = displayedMoves(previous.illusion.species, previous.revealedMoves);
+            previous.species = previous.illusion.species; previous.details = previous.illusion.details;
+            delete previous.illusion;
+          }
           previous.lastActiveTurn = this.state.turn;
           previous.consecutiveProtects = 0;
           previous.lastMoveUsed = null; previous.sameMoveStreak = 0;
@@ -158,6 +176,7 @@ export class BattleTracker {
         // Illusion can make earlier observations belong to another Pokémon.
         // Keep the uncertainty visible instead of merging histories with certainty.
         if (pokemon && second) {
+          delete pokemon.illusion;
           pokemon.ident = canonicalIdent(first); pokemon.details = second; pokemon.species = speciesFromDetails(second);
           this.condition(pokemon, third);
           if (side) side.identityUncertain = true;
@@ -221,6 +240,12 @@ export class BattleTracker {
           if (!called) endSingleMove(pokemon);
           const ownMoveSet = !called || ownSetCallers.has(effectId(source.replace(/^(move|ability): /, '')));
           if (ownMoveSet && !moves.includes(second)) moves.push(second);
+          this.lastMove = { side: id ?? '', move: second };
+          // Illusion: a move the disguise could never carry names the Zoroark underneath.
+          if (id !== this.state.mySide && !called && !pokemon.transformedInto && !pokemon.illusion) {
+            const form = formFromMove(pokemon.species, second, pokemon.revealedMoves);
+            if (form) this.unmask(pokemon, form, `${pokemon.species} used ${second}, which no ${pokemon.species} set carries`);
+          }
           const key = effectId(second);
           if (!called) pokemon.moveUses[key] = (pokemon.moveUses[key] ?? 0) + 1;
           // Pressure charges a second PP when the move is aimed at its holder, which is decided at the moment of use:
@@ -393,6 +418,16 @@ export class BattleTracker {
       // or digger is out of reach. It lasts until the holder next moves.
       case '-prepare':
         if (pokemon && second) pokemon.volatiles[moveId(second)] = { sinceTurn: this.state.turn, data: singleMove };
+        break;
+      // Illusion again: our attack had no effect where the disguise's typing would have taken it and a Zoroark's does not.
+      // An immunity from an ability says so ([from] ability), and a Terastallised or transformed target is left alone.
+      case '-immune':
+        if (pokemon && id !== this.state.mySide && this.lastMove?.side === this.state.mySide && !a.some(v => v.startsWith('[from]')) &&
+            !pokemon.illusion && !pokemon.terastallized && !pokemon.transformedInto && !pokemon.volatiles.typechange) {
+          const move = dex.moves.get(this.lastMove.move);
+          const form = move.exists && move.category !== 'Status' ? formFromImmunity([...dex.species.get(pokemon.species).types], move.type) : null;
+          if (form) this.unmask(pokemon, form, `${move.name} had no effect on it`);
+        }
         break;
       case '-end':
         if (pokemon) {
