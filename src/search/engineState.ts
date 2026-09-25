@@ -82,16 +82,21 @@ const moveNames = (p: PokemonState, set: Candidate | undefined, known: boolean) 
 function pokemon(p: PokemonState, set: Candidate | undefined, known: boolean, usable?: Set<string>, teraSpent = false): string | null {
   let built;
   try { built = buildPokemon(p, set); } catch { return null; }
-  const species = dex.species.get(canonicalSpecies(p.species));
+  // Transform copies the target's species, types, weight, stats (all but HP) and moves, each with 5 PP; HP and item stay
+  // its own. Written as the Ditto it was, the search saw a 12% Normal-type with nothing but Transform, where there stood a
+  // +2 Choice Scarf copy of our Groudon: harmless things are worth keeping alive, so it chose Ruination, which cannot
+  // knock out, over any attack that would have, and the copy's Precipice Blades took Ting-Lu next turn (2687224152).
+  const species = dex.species.get(canonicalSpecies(p.transformedInto ?? p.species));
   if (!species.exists) return null;
   const types = [species.types[0], species.types[1] ?? 'Typeless'];
+  const copied = p.transformedInto && p.copiedMoves.length ? [...new Set(p.copiedMoves.map(id))].slice(0, 4) : null;
   const maxHP = p.exactHP?.max ?? built.maxHP();
   const hp = p.fainted ? 0 : p.exactHP?.current ?? Math.max(1, Math.round((p.hpPercent ?? 100) / 100 * maxHP));
   const ability = p.abilitySuppressed ? 'NONE' : upper(p.ability ?? set?.ability) || 'NONE';
   const item = upper(p.item ?? set?.item) || 'NONE';
-  const moves = moveNames(p, set, known).map(m => {
+  const moves = (copied ?? moveNames(p, set, known)).map(m => {
     const move = dex.moves.get(m);
-    const pp = known ? p.movePP[move.id]?.remaining : undefined;
+    const pp = copied ? 5 : known ? p.movePP[move.id]?.remaining : undefined;
     // Our active's moves are limited to what the request offers, which is how a Choice lock, Encore or Taunt reaches it.
     return `${upper(move.id)};${!!usable && !usable.has(move.id)};${Math.max(0, pp ?? Math.floor(move.pp * 8 / 5) - (p.ppSpent?.[move.id] ?? p.moveUses?.[move.id] ?? 0))}`;
   });

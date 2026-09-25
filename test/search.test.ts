@@ -369,3 +369,17 @@ test('the search timeout covers the extra pass or the endgame, whichever is long
   assert.equal(searchTimeoutMs({ ...base, extraWorlds: 16 }, 8), 2 * (2 * 200 * 2) + 1000);
   assert.equal(searchTimeoutMs({ ...base, endgamePokemon: 4, endgameMsPerWorld: 2000 }, 8), 1 * 2000 * 2 + 1000);
 });
+
+test('a transformed Pokémon reaches the search as its copy: species, types and moves, with its own HP', () => {
+  // 2687224152: a Ditto copying our +2 Groudon went to the engine as a Normal-type with only Transform, so the search
+  // kept it alive with Ruination instead of knocking it out, and its Precipice Blades took Ting-Lu.
+  const b = battleFor([ourRow('Groudon', 72, ['Precipice Blades', 'Heat Crash', 'Swords Dance', 'Thunder Wave'], 'Drought', 'Leftovers', 'Fire')], 'Ditto', 87);
+  b.feed('|-transform|p2a: Foe|p1a: Groudon|[from] ability: Imposter'); b.feed('|move|p2a: Foe|Precipice Blades|p1a: Groudon'); b.feed('|turn|2');
+  const text = engineStateOf(b.state, 'p1', worldOf(b.state, 'p1', () => 0.5)).state.split('/')[1]!;
+  const fields = text.split('=');
+  const mon = fields[Number(fields[6])]!;
+  assert.match(mon, /^GROUDON,87,Ground,Typeless,Ground,Typeless,/, 'the copy\'s species and types, at the Ditto\'s own level');
+  assert.match(mon, /PRECIPICEBLADES;false;5/, 'the copied moves, each with 5 PP');
+  assert.doesNotMatch(mon, /TRANSFORM/, 'not the Ditto\'s own moveset');
+  assert.equal((mon.match(/PRECIPICEBLADES/g) ?? []).length, 1, 'a move copied and then used is written once');
+});
