@@ -1,0 +1,31 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>jevmon</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { height: 100%; margin: 0; background: #0e1013; color: #e6e9ee;
+    font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { display: flex; flex-direction: column; }
+  #bar { display: flex; gap: 6px; align-items: center; padding: 6px 8px; border-bottom: 1px solid #252c36; background: #161a20; }
+  #bar b { font-size: 12px; letter-spacing: .3px; }
+  #port { width: 66px; background: #0e1013; color: #e6e9ee; border: 1px solid #252c36; border-radius: 5px; padding: 3px 6px; font: inherit; font-size: 12px; }
+  button { background: #1c222a; color: #e6e9ee; border: 1px solid #252c36; border-radius: 5px; padding: 3px 9px; font: inherit; font-size: 12px; cursor: pointer; }
+  button:hover { background: #252c36; }
+  #frame { flex: 1; border: 0; width: 100%; background: #0e1013; }
+  #off { display: none; padding: 22px 16px; color: #8b94a3; }
+  #off code { color: #e6e9ee; background: #1c222a; padding: 1px 5px; border-radius: 4px; }
+  #off.on { display: block; }
+</style>
+<div id="bar">
+  <b>jevmon</b>
+  <span style="color:#8b94a3">port</span>
+  <input id="port" type="number" min="1" max="65535" value="8733">
+  <button id="go">Connect</button>
+</div>
+<div id="off">
+  <p>Nothing is listening on that port.</p>
+  <p>Start the bot with <code>npm start</code> — it serves the live view on port 8733 by default.
+     Set <code>LIVE_VIEW_PORT</code> in <code>.env</code> to change it, or <code>0</code> to turn it off.</p>
+</div>
+<iframe id="frame" title="jevmon live view"></iframe>
+<script src="sidepanel.js"></script>

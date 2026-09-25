@@ -1,0 +1,20 @@
+{
+  "instructionsVersion": "2026-09-24-accuracy-v1",
+  "decisions": 2730,
+  "probabilityRecords": 2583,
+  "reduced": 358,
+  "minimal": 2372,
+  "overBudget": 0,
+  "largestPayloadBytes": 31644,
+  "historicalChosenNowDominated": [],
+  "strongerImmediateDamageAlternatives": 3,
+  "chosenExecutionRisk": 7,
+  "substituteDecisions": 40,
+  "substituteWithDamage": 40,
+  "optionalPPUnknown": 131,
+  "invalidHistoricalDistributions": 0,
+  "guardsChangedHistoricalChoice": 438,
+  "historicalMedianTopProbabilityVsUniform": 4.0200000000000005,
+  "historicalMinTopProbabilityVsUniform": 1,
+  "caveat": "Historical choices/distributions are unchanged. Payload/guard replay uses current code and set data with reconstructed requests, not a rerun of Jev. This does not measure prompt quality, win rate, or actual original payload size."
+}

@@ -1,0 +1,9 @@
+node_modules
+dist
+logs
+extension
+scripts
+.git
+.env
+*.md
+vendor/poke-engine/target

@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "jevmon live view",
+  "version": "1.0.0",
+  "description": "Shows what the jevmon bot is deciding, side by side with the Pokemon Showdown battle.",
+  "permissions": ["sidePanel", "storage"],
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "Open the jevmon live view" },
+  "side_panel": { "default_path": "sidepanel.html" }
+}

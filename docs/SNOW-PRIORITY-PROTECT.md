@@ -1,0 +1,9 @@
+# Snow, priority and repeated Protect
+
+Showdown's `Snowscape` event is normalised to `Snow` in live state. The damage calculator and residual evaluator also accept the legacy name so saved-state audits include Ice-type snow Defence and Ice Body healing. Snow does not inflict hail chip.
+
+Protect/Detect's second consecutive use is now skipped when the residual balance is known and non-positive and there is no identified payoff. First-use scouting, pending Wish, passive recovery, opposing residual damage, field/status timers, Orb activation, possible final opposing PP and protection moves with additional effects remain exceptions. Timer exceptions are conservative: their presence is not a forecast that stalling is optimal. The guard retains legal alternatives and follows Jev's ranking.
+
+`priorityTradeoff` is retained in every payload tier. When a non-KO priority attack has a substantially stronger lower-priority alternative, it reports that action, its damage, and whether the current HP survives the strongest modeled hit (including the selected Tera where relevant). Instructions favour stronger executable attacks while retaining revenge chip, KO priority and avoiding concrete disruption. This is not a dominance rule: Close Combat's self-drops, accuracy, secondary effects and unmodeled threats remain tradeoffs.
+
+Validation: 219 tests passed, including the UI server test rerun with loopback permission. Reconstructing battle 2686041453 gives turn-1 Close Combat 75.9–89.9% with snow, versus 112.8–133.8% at turn 4 after Guts activates. The priority comparison distinguishes full-HP survival on turn 1 from likely knockout before Close Combat on turn 4. Replaying the original turn-13 rankings with the revised guard selects Freeze-Dry instead of a second Protect. No new Jev call was made: this does not show what its revised ranking will be in a live battle.

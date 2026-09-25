@@ -1,0 +1,29 @@
+{
+  "name": "jevmon",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.20.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test dist/test/*.test.js",
+    "start": "node --env-file-if-exists=.env dist/src/index.js",
+    "smoke": "npm run build && node --env-file-if-exists=.env dist/src/index.js --smoke",
+    "smoke:login": "npm run build && node --env-file-if-exists=.env dist/src/index.js --login-smoke",
+    "test:sim": "npm run build && node scripts/test-simulator.mjs",
+    "smoke:jev": "npm run build && node dist/src/jev-smoke.js",
+    "build:engine": "cargo build --release --features gen9,terastallization --bin poke-engine --manifest-path vendor/poke-engine/Cargo.toml",
+    "preflight": "npm run build && node --env-file-if-exists=.env scripts/preflight.mjs",
+    "bench": "npm run build && node scripts/selfplay.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.0"
+  },
+  "dependencies": {
+    "@pkmn/dex": "^0.10.11",
+    "@smogon/calc": "^0.12.0"
+  }
+}

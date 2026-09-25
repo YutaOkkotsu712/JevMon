@@ -1,0 +1,23 @@
+>battle-gen9randombattle-test
+|init|battle
+|player|p1|Test Bot|1|1200
+|player|p2|Opponent|2|1300
+|teamsize|p1|6
+|teamsize|p2|6
+|gametype|singles
+|tier|[Gen 9] Random Battle
+|switch|p1a: Sparky|Pikachu, L80, M|200/200
+|switch|p2a: Tusk|Great Tusk, L80|100/100
+|turn|1
+|move|p1a: Sparky|Thunderbolt|p2a: Tusk
+|-boost|p1a: Sparky|spa|2
+|-damage|p1a: Sparky|150/200 brn
+|-sidestart|p2: Opponent|move: Spikes
+|-sidestart|p2: Opponent|move: Spikes
+|-weather|RainDance
+|-fieldstart|move: Electric Terrain
+|-fieldstart|move: Trick Room
+|-ability|p2a: Tusk|Protosynthesis
+|-heal|p2a: Tusk|100/100|[from] item: Leftovers
+|-terastallize|p1a: Sparky|Flying
+|turn|2

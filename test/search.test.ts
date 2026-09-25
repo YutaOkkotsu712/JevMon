@@ -1,0 +1,371 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import { sampleWorld, toEngineState } from '../src/search/engineState.js';
+import { engineName, parseSideOne, searchWorlds } from '../src/search/search.js';
+import { DecisionLoop, blendChoice, type DecisionRecord } from '../src/battle/DecisionLoop.js';
+import type { DecisionProvider, DecisionResult } from '../src/decisions/DecisionProvider.js';
+import { generateLegalActions, parseChoiceRequest } from '../src/battle/LegalActionGenerator.js';
+import { extractFeatures } from '../src/strategy/features.js';
+import { readConfig } from '../src/config/env.js';
+import { battle, ours, room } from './helpers.js';
+
+const BIN = 'vendor/poke-engine/target/release/poke-engine';
+const seeded = (seed: number) => () => ((seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31);
+const setup = () => {
+  const roster = [ours('Terrakion', 79, ['Close Combat', 'Stone Edge', 'Earthquake'], 'Justified', 'Choice Band', 'Ground'),
+    ours('Magearna', 77, ['Flash Cannon', 'Fleur Cannon'], 'Soul-Heart', 'Leftovers', 'Water')];
+  const b = battle(roster, 'Sinistcha');
+  const request = parseChoiceRequest(JSON.stringify(b.payload(2, roster[0]!.maxHP, 0)))!;
+  return { b, roster, request, actions: generateLegalActions(request) };
+};
+
+test('our battle serialises into poke-engine\'s format, one sampled world at a time', () => {
+  const { b } = setup();
+  const world = sampleWorld(b.state, 'p1', seeded(7));
+  assert.equal(world.unrevealed.length, 5, 'their five unseen slots are filled with sampled species');
+  const { state } = toEngineState(b.state, 'p1', world);
+  const [one, two, weather, terrain, trickRoom, preview] = state.split('/');
+  assert.equal(weather, 'NONE;5'); assert.equal(terrain, 'NONE;5'); assert.equal(trickRoom, 'false;5'); assert.equal(preview, 'false');
+  for (const side of [one!, two!]) {
+    const fields = side.split('=');
+    assert.equal(fields.length, 29, 'twenty-nine side fields');
+    for (const p of fields.slice(0, 6)) assert.equal(p.split(',').length, 29, `twenty-nine Pokémon fields: ${p.slice(0, 40)}`);
+  }
+  assert.match(one!, /^TERRAKION,79,Rock,Fighting,/);
+  assert.match(two!, /^SINISTCHA,/);
+  assert.match(one!, /=switch:0=false$/, 'a Pokémon that has not moved since entering last switched, which Fake Out reads');
+});
+
+test('the engine only sees what we can actually do: locked moves disabled, spent Tera spent', () => {
+  const { b } = setup();
+  b.feed('|move|p1a: Terrakion|Close Combat|p2a: Foe'); b.feed('|turn|3');
+  const legal = { moves: new Set(['closecombat']), canSwitch: true, canTera: false };
+  const { state } = toEngineState(b.state, 'p1', sampleWorld(b.state, 'p1', seeded(3)), legal);
+  const terrakion = state.split('/')[0]!.split('=')[0]!.split(',');
+  assert.deepEqual(terrakion.slice(22, 25), ['CLOSECOMBAT;false;7', 'STONEEDGE;true;8', 'EARTHQUAKE;true;16'], 'one Close Combat spent, the others disabled');
+  assert.match(state.split('/')[0]!, /=move:0=false$/, 'its last action was its first move');
+  assert.ok(state.split('/')[0]!.split('=').slice(0, 6).some(p => p.endsWith(',true,Normal')), 'a spent Tera is carried on a placeholder');
+});
+
+test('a forced replacement keeps Tera available for the next turn', () => {
+  const { b } = setup();
+  b.state.requestKind = 'switch';
+  b.me().fainted = true;
+  b.me().hpPercent = 0;
+  b.me().exactHP!.current = 0;
+  const world = sampleWorld(b.state, 'p1', seeded(3));
+  const forced = { moves: new Set<string>(), canSwitch: true, canTera: false, forcedSwitch: true };
+  const { state } = toEngineState(b.state, 'p1', world, forced);
+  assert.ok(state.split('/')[0]!.split('=').slice(0, 6).every(p => !p.endsWith(',true,Normal')),
+    'Tera is unavailable on the replacement choice but remains unspent');
+  b.state.sides.p1.team[0]!.terastallized = true;
+  const used = toEngineState(b.state, 'p1', world, forced).state;
+  assert.ok(used.split('/')[0]!.split('=').slice(0, 6).some(p => p.endsWith(',true,Normal')),
+    'a Tera actually spent before fainting remains spent');
+});
+
+test('engine output is parsed and mapped back onto our legal actions', () => {
+  assert.deepEqual(parseSideOne('Total Iterations: 9\nside one: closecombat,4.5,9|magearna,1.0,3\nside two: x,1,1'),
+    [{ name: 'closecombat', total: 4.5, visits: 9 }, { name: 'magearna', total: 1, visits: 3 }]);
+  const { b, actions } = setup();
+  const names = actions.map(a => engineName(a, b.state));
+  assert.ok(names.includes('closecombat') && names.includes('closecombat-tera') === false && names.includes('magearna'));
+});
+
+test('search runs end to end on the real engine when it is built', { skip: !existsSync(BIN) && 'run npm run build:engine' }, async () => {
+  const { b, actions } = setup();
+  const result = (await searchWorlds(b.state, actions, { bin: BIN, worlds: 4, msPerWorld: 100, random: seeded(11) }))!;
+  assert.equal(result.worldsSearched, 4);
+  const shares = actions.map(a => result.values[a.id]!.visitShare);
+  assert.ok(Math.abs(shares.reduce((n, v) => n + v, 0) - 1) < 0.05, `visit shares cover the legal actions: ${shares}`);
+  // Close Combat does nothing to a Ghost type, so the search should spend less on it than on its best option. A fixed
+  // cutoff failed under load: a starved search spreads its visits almost evenly, whatever it has learned.
+  const close = actions.find(a => a.label === 'Close Combat')!;
+  const best = Math.max(...actions.map(a => result.values[a.id]!.visitShare));
+  assert.ok(result.values[close.id]!.visitShare < best, `Close Combat into Sinistcha drew ${result.values[close.id]!.visitShare}, the best ${best}`);
+});
+
+test('search values reach the payload per action', () => {
+  const { b, request, actions } = setup();
+  const f = extractFeatures({ state: b.state, legalActions: actions, request, search: { [actions[0]!.id]: { visitShare: 0.4, meanScore: 0.55 } } }, 'minimal');
+  assert.deepEqual((f.actions[0] as { search?: unknown }).search, { share: 0.4, score: 0.55 });
+});
+
+async function decideWith(mode: 'advise' | 'blend', providerProbabilities: Record<string, number> | null) {
+  const { b, request, actions } = setup();
+  const records: DecisionRecord[] = [];
+  const top = actions.find(a => a.label === 'Stone Edge')!, searchTop = actions.find(a => a.kind === 'switch')!;
+  const provider: DecisionProvider = { async chooseAction(input): Promise<DecisionResult> {
+    assert.ok(input.search, 'the provider receives the search values');
+    if (!providerProbabilities) return { chosenAction: actions[0]!.id, provider: 'random', fallbackReason: 'jev_failed' };
+    return { chosenAction: top.id, provider: 'jev', confidence: 0.5, probabilities: { ...providerProbabilities } };
+  } };
+  const values = Object.fromEntries(actions.map(a => [a.id, { visitShare: a.id === searchTop.id ? 0.9 : 0.1 / (actions.length - 1), meanScore: 0.5 }]));
+  const loop = new DecisionLoop({ room, username: 'Test Bot', dryRun: true, provider, send: () => true,
+    state: () => b.state, onStatus: () => {}, onDecision: r => records.push(r),
+    search: { mode, timeoutMs: 1000, run: async () => ({ values, worldsSearched: 16, msTotal: 5 }) } });
+  loop.request(JSON.stringify(b.payload(3, 200, 0)));
+  await new Promise(resolve => setTimeout(resolve, 30));
+  loop.stop();
+  void request;
+  return { record: records[0]!, top, searchTop };
+}
+
+test('advise leaves the choice to the provider; blend averages the two; a failed provider leaves it to search', async () => {
+  const even = (ids: string[], topId: string) => Object.fromEntries(ids.map(id => [id, id === topId ? 0.6 : 0.4 / (ids.length - 1)]));
+  const { actions } = setup();
+  const advised = await decideWith('advise', even(actions.map(a => a.id), actions.find(a => a.label === 'Stone Edge')!.id));
+  assert.equal(advised.record.selectedAction.id, advised.top.id, 'advise never overrides');
+  assert.equal(advised.record.blended, undefined);
+  const blend = await decideWith('blend', even(actions.map(a => a.id), actions.find(a => a.label === 'Stone Edge')!.id));
+  assert.equal(blend.record.selectedAction.id, blend.searchTop.id, 'a 0.9 search share outweighs a 0.6 provider preference');
+  assert.equal(blend.record.decidedBy, 'blend');
+  const failed = await decideWith('blend', null);
+  assert.equal(failed.record.selectedAction.id, failed.searchTop.id, 'search replaces the random fallback');
+  assert.equal(failed.record.decidedBy, 'search');
+});
+
+test('search settings are validated, and off by default', () => {
+  assert.equal(readConfig({}).search.mode, 'off');
+  assert.equal(readConfig({ SEARCH_MODE: 'blend', SEARCH_WORLDS: '8' }).search.worlds, 8);
+  assert.throws(() => readConfig({ SEARCH_MODE: 'always' }), /SEARCH_MODE must be off, advise or blend/);
+  assert.throws(() => readConfig({ SEARCH_WORLDS: '0' }), /SEARCH_WORLDS must be a whole number from 1 to 64/);
+});
+
+test('the engine is told how many Protects in a row were used, and about a pending Wish', () => {
+  const roster = [ours('Morpeko', 88, ['Protect', 'Aura Wheel'], 'Hunger Switch', 'Leftovers', 'Electric')];
+  const b = battle(roster, 'Mamoswine');
+  b.feed('|move|p1a: Morpeko|Protect|p1a: Morpeko'); b.feed('|turn|2');
+  b.feed('|move|p1a: Morpeko|Protect|p1a: Morpeko'); b.feed('|turn|3');
+  const ours0 = toEngineState(b.state, 'p1', sampleWorld(b.state, 'p1', seeded(5))).state.split('/')[0]!.split('=');
+  assert.equal(ours0[7]!.split(';')[8], '2', 'the consecutive-Protect count, which decays its success chance');
+  b.state.sides.p1.slotConditions.wish = { setOnTurn: 3, healsHP: 120, from: 'Morpeko' };
+  const withWish = toEngineState(b.state, 'p1', sampleWorld(b.state, 'p1', seeded(5))).state.split('/')[0]!.split('=');
+  assert.deepEqual([withWish[18], withWish[19]], ['2', '120'], 'a Wish set this turn heals at the end of the next');
+});
+
+test('a Rest sleeper reaches the engine with the counter it wakes on', () => {
+  const b = battle([ours('Suicune', 84, ['Scald', 'Rest', 'Sleep Talk', 'Calm Mind'], 'Pressure', 'Leftovers', 'Water')], 'Garchomp');
+  b.feed('|move|p1a: Suicune|Rest|p1a: Suicune'); b.feed('|-status|p1a: Suicune|slp|[from] move: Rest'); b.feed('|turn|2');
+  const rest = () => toEngineState(b.state, 'p1', sampleWorld(b.state, 'p1', seeded(2))).state.split('/')[0]!.split('=')[0]!.split(',')[19];
+  assert.equal(rest(), '3', 'just Rested: two turns asleep still to come');
+  b.feed('|move|p1a: Suicune|Sleep Talk|p1a: Suicune'); b.feed('|turn|3');
+  assert.equal(rest(), '2');
+});
+
+test('search overrules the provider only by a clear margin in its own score', async () => {
+  const { b, actions } = setup();
+  const top = actions.find(a => a.label === 'Stone Edge')!, searchTop = actions.find(a => a.kind === 'switch')!;
+  const run = async (lead: number, theirShare = 0.3) => {
+    const records: DecisionRecord[] = [];
+    const provider: DecisionProvider = { async chooseAction(): Promise<DecisionResult> {
+      return { chosenAction: top.id, provider: 'jev', confidence: 0.5, probabilities: Object.fromEntries(actions.map(a => [a.id, a.id === top.id ? 0.6 : 0.4 / (actions.length - 1)])) };
+    } };
+    const values = Object.fromEntries(actions.map(a => [a.id, { visitShare: a.id === searchTop.id ? 0.55 : a.id === top.id ? theirShare : 0.05,
+      meanScore: a.id === searchTop.id ? 0.5 + lead : 0.5 }]));
+    const loop = new DecisionLoop({ room, username: 'Test Bot', dryRun: true, provider, send: () => true, state: () => b.state,
+      onStatus: () => {}, onDecision: r => records.push(r),
+      search: { mode: 'blend', weight: 0.7, overrideMargin: 0.03, timeoutMs: 1000, run: async () => ({ values, worldsSearched: 16, msTotal: 5 }) } });
+    loop.request(JSON.stringify(b.payload(3, 200, 0)));
+    await new Promise(resolve => setTimeout(resolve, 30));
+    loop.stop();
+    return records[0]!;
+  };
+  const tie = await run(0.01);
+  assert.equal(tie.selectedAction.id, top.id, 'a 0.01 lead on similar visits is a tie: the provider keeps its choice');
+  assert.equal(tie.decidedBy, 'provider');
+  const lopsided = await run(0.01, 0.1);
+  assert.equal(lopsided.selectedAction.id, searchTop.id, 'four times the visits is the search settling it, whatever the score gap');
+  const clear = await run(0.08);
+  assert.equal(clear.selectedAction.id, searchTop.id, 'a clear lead still overrules');
+  assert.equal(clear.decidedBy, 'blend');
+  assert.equal(readConfig({}).search.overrideMargin, 0.03);
+  assert.throws(() => readConfig({ SEARCH_OVERRIDE_MARGIN: '2' }), /SEARCH_OVERRIDE_MARGIN/);
+});
+
+test('a large search-value gap prevents a narrow blended vote for a poor action', () => {
+  const actions = [
+    { id: 'switch', kind: 'switch', label: 'Switch to Sylveon', command: 'switch 2', uncertain: false },
+    { id: 'web', kind: 'move', label: 'Sticky Web', command: 'move 1', uncertain: false },
+    { id: 'tera-web', kind: 'move', label: 'Sticky Web + Tera Electric', command: 'move 1 terastallize', uncertain: false },
+  ] as const;
+  const prior = { switch: 0.58, web: 0.02, 'tera-web': 0.01 };
+  const values = { switch: { visitShare: 0.142, meanScore: 0.376 },
+    web: { visitShare: 0.373, meanScore: 0.546 },
+    'tera-web': { visitShare: 0.086, meanScore: 0.570 } };
+  const picked = blendChoice([...actions], prior, 'switch', values, 0.7, 0.03);
+  assert.equal(picked.pick?.chosen, 'web', 'the high provider vote cannot erase a 0.17 search-value deficit');
+});
+
+test('once the search clearly beats the provider\'s top, a near tie below it goes to the provider\'s ranking', async () => {
+  const { b, actions } = setup();
+  const top = actions.find(a => a.label === 'Stone Edge')!, searchTop = actions.find(a => a.kind === 'switch')!;
+  const second = actions.find(a => a.kind === 'move' && a.id !== top.id)!;
+  const run = async (secondScore: number) => {
+    const records: DecisionRecord[] = [];
+    const provider: DecisionProvider = { async chooseAction(): Promise<DecisionResult> {
+      return { chosenAction: top.id, provider: 'jev', confidence: 0.5, probabilities: Object.fromEntries(actions.map(a =>
+        [a.id, a.id === top.id ? 0.5 : a.id === second.id ? 0.35 : 0.15 / (actions.length - 2)])) };
+    } };
+    // As Meloetta's turn went: the provider's top is clearly worse, and the search's pick leads the provider's second by little.
+    const values = Object.fromEntries(actions.map(a => [a.id, { visitShare: a.id === searchTop.id ? 0.5 : a.id === second.id ? 0.26 : 0.2 / (actions.length - 2),
+      meanScore: a.id === searchTop.id ? 0.58 : a.id === second.id ? secondScore : 0.5 }]));
+    const loop = new DecisionLoop({ room, username: 'Test Bot', dryRun: true, provider, send: () => true, state: () => b.state,
+      onStatus: () => {}, onDecision: r => records.push(r),
+      search: { mode: 'blend', weight: 0.7, overrideMargin: 0.03, timeoutMs: 1000, run: async () => ({ values, worldsSearched: 16, msTotal: 5 }) } });
+    loop.request(JSON.stringify(b.payload(3, 200, 0)));
+    await new Promise(resolve => setTimeout(resolve, 30));
+    loop.stop();
+    return records[0]!;
+  };
+  const near = await run(0.565);
+  assert.equal(near.selectedAction.id, second.id, '0.015 behind the search\'s pick is a tie, and the provider preferred this');
+  assert.deepEqual(near.nearTie, { searchBest: searchTop.id, chosen: second.id });
+  const far = await run(0.54);
+  assert.equal(far.selectedAction.id, searchTop.id, 'a clear gap leaves the search\'s pick standing');
+  assert.equal(far.nearTie, undefined);
+});
+
+import { toEngineState as engineStateOf, sampleWorld as worldOf } from '../src/search/engineState.js';
+import { battle as battleFor, ours as ourRow } from './helpers.js';
+
+test('an opposing Substitute and Wish are written in the sampled set\'s own HP', () => {
+  const b = battleFor([ourRow('Mewtwo', 100, ['Psystrike', 'Recover'], 'Pressure', 'Life Orb', 'Psychic')], 'Vaporeon', 86);
+  // No Vaporeon set carries Substitute, so the shell arrives the way a Shed Tail passes one, without the move being revealed.
+  b.feed('|move|p2a: Foe|Wish|p2a: Foe'); b.feed('|-start|p2a: Foe|Substitute'); b.feed('|turn|2');
+  assert.equal(b.state.sides.p2.slotConditions.wish?.healsHP, null, 'their exact HP is unknown');
+  const text = engineStateOf(b.state, 'p1', worldOf(b.state, 'p1', () => 0.5)).state.split('/')[1]!;
+  const fields = text.split('=');
+  const mon = fields[Number(fields[6])]!.split(',');
+  const max = Number(mon[7]);
+  assert.ok(max > 300, `Vaporeon's own max HP, not 100: ${max}`);
+  assert.equal(Number(fields[10]), Math.floor(max / 4), 'the shell is a quarter of that');
+  assert.equal(Number(fields[19]), Math.floor(max / 2), 'and the Wish half of it');
+});
+
+test('in blend the provider does not see the search it is blended with, unless asked to', async () => {
+  const { b, actions } = setup();
+  const seen: boolean[] = [];
+  const provider: DecisionProvider = { async chooseAction(input): Promise<DecisionResult> {
+    seen.push(!!input.search);
+    return { chosenAction: actions[0]!.id, provider: 'jev', confidence: 0.5, probabilities: Object.fromEntries(actions.map(a => [a.id, 1 / actions.length])) };
+  } };
+  const values = Object.fromEntries(actions.map(a => [a.id, { visitShare: 1 / actions.length, meanScore: 0.5 }]));
+  const records: DecisionRecord[] = [];
+  for (const inPayload of [false, true]) {
+    const loop = new DecisionLoop({ room, username: 'Test Bot', dryRun: true, provider, send: () => true, state: () => b.state,
+      onStatus: () => {}, onDecision: r => records.push(r),
+      search: { mode: 'blend', weight: 0.7, overrideMargin: 0.03, inPayload, timeoutMs: 1000, run: async () => ({ values, worldsSearched: 16, msTotal: 5 }) } });
+    loop.request(JSON.stringify(b.payload(3, 200, 0)));
+    await new Promise(resolve => setTimeout(resolve, 30));
+    loop.stop();
+  }
+  assert.deepEqual(seen, [false, true]);
+  assert.deepEqual(records.map(r => r.search?.inPayload), [false, true], 'each decision records which it was, for comparing the two');
+  assert.equal(readConfig({ SEARCH_MODE: 'blend' }).search.inPayload, false);
+  assert.equal(readConfig({ SEARCH_MODE: 'advise' }).search.inPayload, true);
+  assert.equal(readConfig({ SEARCH_MODE: 'blend', SEARCH_IN_PAYLOAD: 'true' }).search.inPayload, true);
+});
+
+test('a near tie cannot flip the kind of action that both the provider and the search chose', () => {
+  // 2687072937 turn 7: Jev wanted a switch (Stantler) and so did the search (Victreebel); the old rule played Freeze-Dry.
+  const actions = [
+    { id: 'stantler', kind: 'switch', label: 'Switch to Stantler', command: 'switch 3', uncertain: false },
+    { id: 'victreebel', kind: 'switch', label: 'Switch to Victreebel', command: 'switch 4', uncertain: false },
+    { id: 'spikes', kind: 'move', label: 'Spikes', command: 'move 1', uncertain: false },
+    { id: 'freezedry', kind: 'move', label: 'Freeze-Dry', command: 'move 2', uncertain: false },
+  ] as const;
+  const prior = { stantler: 0.43, victreebel: 0.1, spikes: 0.07, freezedry: 0.37 };
+  const values = { stantler: { visitShare: 0.076, meanScore: 0.325 }, victreebel: { visitShare: 0.32, meanScore: 0.36 },
+    spikes: { visitShare: 0.156, meanScore: 0.346 }, freezedry: { visitShare: 0.127, meanScore: 0.34 } };
+  assert.equal(blendChoice([...actions], prior, 'stantler', values, 0.7, 0.03).pick?.chosen, 'victreebel');
+  // Split between kinds, the provider still settles a near tie, as on the turn the rule was made for: Jev 0.39 on one
+  // switch, 0.36 on Hyper Voice, and the search's switch only 0.019 ahead of the attack. The attack stands.
+  const split = { stantler: 0.39, victreebel: 0.02, spikes: 0.02, freezedry: 0.36 };
+  const close = { stantler: { visitShare: 0.05, meanScore: 0.183 }, victreebel: { visitShare: 0.306, meanScore: 0.228 },
+    spikes: { visitShare: 0.1, meanScore: 0.15 }, freezedry: { visitShare: 0.157, meanScore: 0.209 } };
+  assert.equal(blendChoice([...actions], split, 'stantler', close, 0.7, 0.03).pick?.chosen, 'freezedry');
+});
+
+test('scores inside the margin are not a tie when the search gave its pick twice the visits', () => {
+  // 2687148187 turn 7: Arceus-Grass at +1 with Calm Mind at 0.45 of the visits and Judgment, Jev's pick, at 0.11. The
+  // scores were 0.029 apart, so Jev's attack stood; rerun, the search keeps such a pick in 71 of 75 runs.
+  const actions = [
+    { id: 'cm', kind: 'move', label: 'Calm Mind', command: 'move 1', uncertain: false },
+    { id: 'judgment', kind: 'move', label: 'Judgment', command: 'move 2', uncertain: false },
+    { id: 'recover', kind: 'move', label: 'Recover', command: 'move 3', uncertain: false },
+  ] as const;
+  const prior = { cm: 0.19, judgment: 0.61, recover: 0.2 };
+  const values = { cm: { visitShare: 0.452, meanScore: 0.353 }, judgment: { visitShare: 0.114, meanScore: 0.324 }, recover: { visitShare: 0.1, meanScore: 0.3 } };
+  assert.equal(blendChoice([...actions], prior, 'judgment', values, 0.7, 0.03).pick?.chosen, 'cm');
+  const even = { ...values, cm: { visitShare: 0.4, meanScore: 0.353 }, judgment: { visitShare: 0.3, meanScore: 0.324 } };
+  assert.equal(blendChoice([...actions], prior, 'judgment', even, 0.7, 0.03).pick?.chosen, 'judgment', 'visits this close are a real tie: the provider settles it');
+});
+
+test('a Tera is played only when the search ranks it above the same move without Tera', () => {
+  // 2687148187 turn 2: Rhyperior's Earthquake + Tera Ground with all six of ours standing; the search had the plain
+  // Earthquake at 0.316 of the visits and the Tera at 0.144, and Jev's pick stood on the score margin.
+  const actions = [
+    { id: 'move-1', kind: 'move', label: 'Earthquake', command: 'move 1', uncertain: false },
+    { id: 'move-1-terastallize', kind: 'move', label: 'Earthquake + Tera Ground', command: 'move 1 terastallize', uncertain: false },
+    { id: 'move-2', kind: 'move', label: 'Stone Edge', command: 'move 2', uncertain: false },
+  ] as const;
+  const prior = { 'move-1': 0.2, 'move-1-terastallize': 0.7, 'move-2': 0.1 };
+  const values = { 'move-1': { visitShare: 0.316, meanScore: 0.628 }, 'move-1-terastallize': { visitShare: 0.144, meanScore: 0.613 }, 'move-2': { visitShare: 0.2, meanScore: 0.6 } };
+  const held = blendChoice([...actions], prior, 'move-1-terastallize', values, 0.7, 0.03).pick!;
+  assert.equal(held.chosen, 'move-1');
+  assert.deepEqual(held.teraHeldBack, { from: 'move-1-terastallize', to: 'move-1' });
+  const wanted = { ...values, 'move-1-terastallize': { visitShare: 0.4, meanScore: 0.65 } };
+  const played = blendChoice([...actions], prior, 'move-1-terastallize', wanted, 0.7, 0.03).pick!;
+  assert.equal(played.chosen, 'move-1-terastallize', 'the search wants the Tera too');
+  assert.equal(played.teraHeldBack, undefined);
+});
+
+test('a guard that skips a Tera falls back to the same move without it, not to the next-ranked action', async () => {
+  // 2687217753: Flamigo's skipped Tera Close Combat fell to U-turn, which Jev had ranked 0.07 to plain Close Combat's 0.05.
+  const team = [ourRow('Basculin', 86, ['Wave Crash', 'Aqua Jet', 'Flip Turn', 'Psychic Fangs'], 'Adaptability', 'Choice Band', 'Water'),
+    ourRow('Snorlax', 84, ['Body Slam'], 'Thick Fat', 'Leftovers', 'Normal'), ourRow('Garchomp', 77, ['Earthquake'], 'Rough Skin', 'Life Orb', 'Ground'),
+    ourRow('Clefable', 85, ['Moonblast'], 'Magic Guard', 'Leftovers', 'Steel')];
+  const b = battleFor(team, 'Snorlax', 85);
+  const payload = b.payload(3, team[0]!.maxHP, 0) as ReturnType<typeof b.payload> & { active: { canTerastallize?: string }[] };
+  payload.active[0]!.canTerastallize = 'Water';
+  const records: DecisionRecord[] = [];
+  const provider: DecisionProvider = { async chooseAction(input): Promise<DecisionResult> {
+    const id = (label: string) => input.legalActions.find(a => a.label === label)!.id;
+    return { chosenAction: id('Wave Crash + Tera Water'), provider: 'jev', confidence: 0.5, probabilities: Object.fromEntries(input.legalActions.map(a =>
+      [a.id, a.label === 'Wave Crash + Tera Water' ? 0.7 : a.label === 'Flip Turn' ? 0.1 : a.label === 'Wave Crash' ? 0.05 : 0.01])) };
+  } };
+  const loop = new DecisionLoop({ room, username: 'Test Bot', dryRun: true, provider, send: () => true, state: () => b.state,
+    onStatus: () => {}, onDecision: r => records.push(r) });
+  loop.request(JSON.stringify(payload));
+  await new Promise(resolve => setTimeout(resolve, 30));
+  loop.stop();
+  assert.equal(records[0]!.selectedAction.label, 'Wave Crash', 'the guard objects to the Tera, not to Wave Crash');
+  assert.match(records[0]!.skippedDominatedMove!.reason, /Tera Water/);
+});
+
+import { parseMatrix, solveMatrixGame, searchTimeoutMs } from '../src/search/search.js';
+
+test('the endgame solver reads the engine matrix and solves the root as a simultaneous game', () => {
+  const m = parseMatrix('side one options: closecombat,uturn\nside two options: iciclecrash,highhorsepower\nmatrix: 10.00,-5.00,2.00,3.00\nchoice: uturn\nevaluation: 2\n');
+  assert.deepEqual(m, { ours: ['closecombat', 'uturn'], theirs: ['iciclecrash', 'highhorsepower'], cells: [10, -5, 2, 3] });
+  assert.equal(parseMatrix('matrix: 1,NaN\nside one options: a\nside two options: b,c'), null, 'a pruned cell leaves no full matrix');
+  // Rock, paper, scissors: the only equilibrium is uniform, and every action is worth the same against it.
+  const rps = solveMatrixGame([0, -1, 1, 1, 0, -1, -1, 1, 0], 3, 3);
+  for (const p of rps.row) assert.ok(Math.abs(p - 1 / 3) < 0.03);
+  assert.ok(Math.abs(rps.value) < 0.05);
+  // A dominant row takes all the weight, whatever the opponent does.
+  const dominant = solveMatrixGame([5, 4, 1, 0], 2, 2);
+  assert.ok(dominant.row[0]! > 0.97);
+  // Matching pennies with a bias: worst-case play would pick the safe row, the equilibrium mixes.
+  const mixed = solveMatrixGame([3, -1, -1, 1], 2, 2);
+  assert.ok(mixed.row[0]! > 0.2 && mixed.row[0]! < 0.5, `mixed strategy, got ${mixed.row[0]}`);
+});
+
+test('the search timeout covers the extra pass or the endgame, whichever is longer', () => {
+  const base = { bin: '', worlds: 16, msPerWorld: 200, extraWorlds: 0, closeRatio: 0.6, endgamePokemon: 0, endgameWorlds: 8, endgameMsPerWorld: 400 };
+  assert.equal(searchTimeoutMs(base, 8), 2 * 200 * 2 + 1000);
+  assert.equal(searchTimeoutMs({ ...base, extraWorlds: 16 }, 8), 2 * (2 * 200 * 2) + 1000);
+  assert.equal(searchTimeoutMs({ ...base, endgamePokemon: 4, endgameMsPerWorld: 2000 }, 8), 1 * 2000 * 2 + 1000);
+});

@@ -1,0 +1,25 @@
+services:
+  jevmon:
+    build: .
+    # Restarts on crash and after a reboot of the host, which is the whole point of running it here.
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      LIVE_VIEW_HOST: 0.0.0.0
+    # Loopback only: the live view has no authentication, so reach it over an SSH tunnel rather than
+    # publishing it to the internet. ssh -N -L 8733:127.0.0.1:8733 user@your-vps
+    ports:
+      - "127.0.0.1:8733:8733"
+    volumes:
+      - ./logs:/app/logs
+    # It needs no privileges and writes nothing but its logs, so a compromise of the process gets no further.
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 512m
+    pids_limit: 128
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
