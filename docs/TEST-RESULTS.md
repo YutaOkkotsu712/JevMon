@@ -2014,3 +2014,21 @@ Tests: 408 pass.
   in `by` (`needlessGamble`, `preserveSoleDefensiveAnswer`) is left to the ranking: across the logs the search rated
   another move above it in three of four cases.
 - 421 pass.
+
+## Bench `defence`, and the first weights fit that beats the current ones (2026-09-25)
+
+- **`defence` (184 of 200 games, stopped).** The engine whose defensive boosts count only against the current opponent's
+  attacks won 87 of 184 against the live engine: 47.3%, 95% range 40.2–54.5%, about −19 Elo.
+  - Reaching significance needed 27 wins from the 16 games left, so the run was stopped.
+  - Reverted (a3c36c4). The live binary never had it.
+  - One game (seed 32, B as p1) spanned a 6.5-minute sleep with the lid closed on battery.
+  - A defensive boost has value beyond the Pokémon now out: the opponent can switch in something it does stop.
+- **Guards on against off.** Not run; it was queued behind `defence` and cancelled with it.
+- **Weights fit on the 9,882 positions from those 184 games** (`scripts/fit-weights.mjs --bench defence`).
+  - Held-out log-loss, split by game: current weights rescaled 0.5490, fitted (pull 0.1) 0.5289. This is the first fit
+    to beat the current weights; the 284 ladder games alone could not.
+  - The largest moves: speed boost 30 → 15; defense and special defense boosts 15 → 8 and 7; asleep per turn −12.5 →
+    −8; paralysed −25 → −41; toxic −30 → −72; burn-boosted 50 → 7; Sticky Web −25 → −11; matchup 0 → 6.
+  - They agree with the known overvaluation of boosts and sleep.
+  - Written to `logs/weights/fitted-bench.txt`. Not deployed: predicting results better is not playing better, so a
+    bench of fitted against current weights has to decide (`SearchOptions.weights` per side).
