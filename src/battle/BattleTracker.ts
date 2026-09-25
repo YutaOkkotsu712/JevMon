@@ -252,7 +252,10 @@ export class BattleTracker {
           // set the Pokémon could actually have — which is how a Magic Bounce erases its own warning.
           const source = a.find(value => value.startsWith('[from]'))?.replace(/^\[from\] ?/, '') ?? '';
           // A move of its own ends the last one's single-move effect; a called move comes after the caller already did.
-          if (!called) endSingleMove(pokemon);
+          // The second turn of a two-turn move or a rampage arrives as [from]lockedmove and is its own move too: left
+          // standing, a fired Meteor Beam's charge told the engine it was still charging, so the next turn it offered
+          // nothing but Meteor Beam.
+          if (!called || effectId(source) === 'lockedmove') endSingleMove(pokemon);
           const ownMoveSet = !called || ownSetCallers.has(effectId(source.replace(/^(move|ability): /, '')));
           if (ownMoveSet && !moves.includes(second)) moves.push(second);
           this.lastMove = { side: id ?? '', move: second };
@@ -433,6 +436,12 @@ export class BattleTracker {
       // or digger is out of reach. It lasts until the holder next moves.
       case '-prepare':
         if (pokemon && second) pokemon.volatiles[moveId(second)] = { sinceTurn: this.state.turn, data: singleMove };
+        break;
+      // A charge skipped the same turn (Power Herb, Solar Beam in sun, Electro Shot in rain) shows as -anim straight
+      // after -prepare: the move has fired, so nothing is charging. Eternatus's Power Herb Meteor Beam was left charging,
+      // and the engine made it charge a second one into Psychic Noise, trapped at 32% (2687788784).
+      case '-anim':
+        if (pokemon && second && pokemon.volatiles[moveId(second)]?.sinceTurn === this.state.turn) delete pokemon.volatiles[moveId(second)];
         break;
       // Illusion again: our attack had no effect where the disguise's typing would have taken it and a Zoroark's does not.
       // An immunity from an ability says so ([from] ability), and a Terastallised or transformed target is left alone.

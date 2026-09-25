@@ -806,3 +806,17 @@ test('asleep without Sleep Talk, sleep alone does not skip every move and force 
   talker.feed('|-status|p1a: Misdreavus|slp'); talker.feed('|turn|2');
   assert.deepEqual(labels(decide(talker), certainlyFails(decide(talker))), ['Calm Mind', 'Shadow Ball', 'Will-O-Wisp'], 'with Sleep Talk, the rest still give way to it');
 });
+
+test('a nearly spent active is let go even when the switch-in loses only a fifth', () => {
+  // 2687786966: Iron Leaves at 3% faced Morpeko-Hangry's Aura Wheel; Quaquaval came in to lose 26% for it.
+  const roster = [ours('Iron Leaves', 80, ['Leaf Blade', 'Close Combat', 'Psyblade', 'Swords Dance'], 'Quark Drive', 'Booster Energy', 'Fighting'),
+    ours('Quaquaval', 79, ['Aqua Step', 'Close Combat', 'Knock Off', 'U-turn'], 'Moxie', 'Life Orb', 'Water')];
+  const b = battle(roster, 'Morpeko', 88);
+  b.feed('|move|p2a: Foe|Aura Wheel|p1a: Iron Leaves'); b.feed('|turn|2');
+  const payload = b.payload(9, Math.round(roster[0]!.maxHP * 0.03), 0);
+  b.feed(`|request|${JSON.stringify(payload)}`);
+  const request = parseChoiceRequest(JSON.stringify(payload))!;
+  const input = { state: b.state, legalActions: generateLegalActions(request), request };
+  const names = labels(input, savingTheDoomed(input));
+  assert.ok(names.some(n => n.includes('Quaquaval')), `Quaquaval is not spent on a 3% Iron Leaves: ${names.join(', ')}`);
+});

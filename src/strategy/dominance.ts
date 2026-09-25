@@ -1658,7 +1658,7 @@ export function pickedOffOnArrival(input: DecisionInput) {
  *
  * Narrow: a revealed attack that cannot miss knocks our active out at every sampled roll. Only a switch whose Pokémon,
  * after entry hazards, loses more HP to every such attack than switching saves (our active's HP, plus Regenerator's
- * third), and at least half of its own, is skipped. A switch-in
+ * third), and at least half of its own (or a fifth of a bar, when our active is at 35% or less), is skipped. A switch-in
  * that resists or is immune stays open, and a healthy active is never sacrificed this way, since nothing loses more.
  */
 export function savingTheDoomed(input: DecisionInput) {
@@ -1688,7 +1688,11 @@ export function savingTheDoomed(input: DecisionInput) {
       return hit && !hit.takesNothingBecauseOfOurAbility ? Math.min(arriving, hit.percentOfMaxHP[0]) : 0;
     });
     const least = Math.min(...losses);
-    if (least <= saved || least < arriving / 2) continue;
+    // A switch-in that loses half of what it has is always too dear. For an active at 35% or less, a fifth of a bar is:
+    // Iron Leaves at 3%, doomed by Aura Wheel, was switched out to a Quaquaval that lost 26%, and came back next turn
+    // to faint anyway, while each switch fed Morpeko a Speed boost (2687786966).
+    const dear = least >= arriving / 2 || (me.hpPercent <= 35 && least >= 20);
+    if (least <= saved || !dear) continue;
     result.set(action.id, { by: 'sack', reason: `${foe.species}'s ${doom.join(' or ')} knocks ${me.species} (${Math.round(me.hpPercent)}%) out at every sampled roll, and ${target.species} would lose at least ${Math.round(least)}% of its ${Math.round(arriving)}% taking it instead: more than switching saves, so let ${me.species} go and bring the next Pokémon in free` });
   }
   return result;

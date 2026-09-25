@@ -321,3 +321,17 @@ test('our Pokémon transformed into an opponent keeps the copied stats, which it
   feed(t, '|switch|p1a: Ditto|Ditto, L87|225/225');
   void 0;
 });
+
+test('a charge move that fires is no longer charging, whether by Power Herb or on its second turn', () => {
+  // 2687788784: Eternatus's Power Herb Meteor Beam fired at once but stayed marked as charging, so the engine offered it
+  // only Meteor Beam next turn, and it charged a second one into Psychic Noise.
+  const t = tracker();
+  feed(t, '|switch|p1a: Eternatus|Eternatus, L69|308/308\n|turn|3');
+  feed(t, '|move|p1a: Eternatus|Meteor Beam||[still]\n|-prepare|p1a: Eternatus|Meteor Beam\n|-boost|p1a: Eternatus|spa|1\n|-enditem|p1a: Eternatus|Power Herb\n|-anim|p1a: Eternatus|Meteor Beam|p2a: Sparky\n|turn|4');
+  const eternatus = t.state.sides.p1.team.find(p => p.species === 'Eternatus')!;
+  assert.equal(eternatus.volatiles.meteorbeam, undefined, 'Power Herb fired it the same turn');
+  feed(t, '|move|p1a: Eternatus|Meteor Beam||[still]\n|-prepare|p1a: Eternatus|Meteor Beam\n|turn|5');
+  assert.ok(eternatus.volatiles.meteorbeam, 'without the herb it charges');
+  feed(t, '|move|p1a: Eternatus|Meteor Beam|p2a: Sparky|[from] lockedmove\n|turn|6');
+  assert.equal(eternatus.volatiles.meteorbeam, undefined, 'and once it fires, the charge is over');
+});

@@ -2403,3 +2403,21 @@ overruling the search, or a guard's fallback. Four fixes:
 - In the logs, sleep forced 3 switches, all to Pokémon the search rated below staying: Greninja fainted, and
   Indeedee took 45%.
 - Test covers both cases. 438 pass.
+
+## A fired charge move stops charging, and a nearly spent active is let go (2026-09-26, audit-v14)
+
+- **Power Herb and second turns.** In 2687788784 Eternatus's Power Herb Meteor Beam fired the turn it charged, but
+  '-prepare' had marked it charging and nothing cleared the mark. Next turn the engine offered only Meteor Beam, the
+  search put 100% on it, and Eternatus charged a real one into Gothitelle's Psychic Noise. Trapped at 32%, it died
+  after firing it.
+  - An '-anim' of the charged move on the same turn now clears the mark. That covers Power Herb, Solar Beam in sun
+    and Electro Shot in rain.
+  - The second turn's `[from] lockedmove` now ends it too; it had counted as a called move and left the mark standing.
+  - Re-tracking that game leaves Eternatus with no charge on turn 4.
+- **`savingTheDoomed` widened.** In 2687786966 Iron Leaves at 3%, certain to fall to Morpeko-Hangry's Aura Wheel, was
+  switched to a Quaquaval that lost 26%. The search preferred Leaf Blade by 0.053. Iron Leaves came back to faint the
+  next turn, and every switch fed Morpeko another Speed boost. The half-of-its-HP bar kept the guard quiet.
+  - For an active at 35% or less, losing a fifth of a bar is now enough.
+  - Over all logs, the search split evenly on such switches: it preferred staying in 37 of 71 cases (median gap
+    0.002), so the guard rarely overrules a confident search.
+- Tests: the Power Herb, charge and fire sequence; Iron Leaves and Quaquaval. 440 pass. Preflight gives no warnings.
