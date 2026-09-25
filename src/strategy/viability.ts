@@ -1,7 +1,7 @@
 import type { BattleState, PokemonState, SideId } from '../battle/BattleState.js';
 import { canonicalSpecies, dex, id } from '../pokemon/data.js';
 import { grounded, pokemonTypes, typeEffectiveness, selfStageChanges } from '../pokemon/mechanics.js';
-import { movePriority } from './speed.js';
+import { movePriority, turnOrder } from './speed.js';
 import { sampled } from './sampled.js';
 import { phazeStoppers } from './phaze.js';
 import { boostersFor, statusBoosters } from './statusGifts.js';
@@ -71,9 +71,11 @@ export function effectViability(s: BattleState, moveName: string, user: PokemonS
 
   // Recovery and Substitute depend only on our own HP, which we know exactly.
   const hp = user.hpPercent;
-  // Draining attacks carry the heal flag too, for Heal Block, but their damage still lands at full HP.
+  // Draining attacks carry the heal flag too, for Heal Block, but their damage still lands at full HP. A faster hit
+  // lands first, though, and the heal then restores it: Reuniclus at full HP had Recover, the search's pick, ruled out
+  // against a +1 Falinks whose Knock Off took it to 20% before Life Orb recoil knocked Falinks out (2687779585).
   if (move.category === 'Status' && !['revivalblessing', 'wish'].includes(move.id) &&
-    (move.flags.heal || move.id === 'rest') && move.id !== 'strengthsap' && hp === 100) {
+    (move.flags.heal || move.id === 'rest') && move.id !== 'strengthsap' && hp === 100 && !hitBeforeHeal(s, user, userSide, move.name)) {
     certain.push('the user is already at full HP, so a healing move restores nothing');
   }
   // Sleep is checked before Rest runs. On a certain wake turn, Rest can put the user back to sleep.
@@ -302,4 +304,20 @@ export function effectViability(s: BattleState, moveName: string, user: PokemonS
     }
   }
   return certain.length || possible.length || limited.length ? { certain, possible, limited } : null;
+}
+
+/**
+ * Whether a heal at full HP still restores something: the opponent surely moves first against it, with an attack it has
+ * shown that can hurt the user, so the heal comes after the damage. Judged for our own Pokémon, whose speed we know.
+ */
+export function hitBeforeHeal(s: BattleState, user: PokemonState, userSide: SideId, healName: string) {
+  if (userSide !== s.mySide) return false;
+  const theirs = s.sides[userSide === 'p1' ? 'p2' : 'p1'];
+  const foe = theirs.team.find(p => p.id === theirs.activeId);
+  if (!foe || foe.fainted) return false;
+  const hurts = foe.revealedMoves.some(m => {
+    const move = dex.moves.get(m);
+    return move.exists && move.category !== 'Status' && (typeEffectiveness(move.type, pokemonTypes(user)) ?? 1) > 0;
+  });
+  return hurts && turnOrder(s, user, healName)?.order === 'theirs-first';
 }

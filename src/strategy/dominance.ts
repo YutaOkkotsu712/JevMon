@@ -23,7 +23,7 @@ import { protectMoves } from '../battle/BattleTracker.js';
 import { giftsFor } from './statusGifts.js';
 import { restPlan } from './rest.js';
 import { sampled } from './sampled.js';
-import { certainFailure, effectViability, repeatedSelfEffectFailure } from './viability.js';
+import { certainFailure, effectViability, hitBeforeHeal, repeatedSelfEffectFailure } from './viability.js';
 
 /**
  * A move that certainly fails is never the fallback. Scream Tail faced a Gastrodon that out-healed Play Rough;
@@ -1451,13 +1451,6 @@ export function healAtFullHP(input: DecisionInput) {
   const ours = s.sides[s.mySide];
   const me = ours.team.find(p => p.id === ours.activeId);
   if (!me || me.fainted || (me.hpPercent ?? 0) < 100) return result;
-  const theirs = s.sides[s.mySide === 'p1' ? 'p2' : 'p1'];
-  const foe = theirs.team.find(p => p.id === theirs.activeId);
-  // An attack they have shown that can hurt us: moving first, it lands before the heal, which then restores it.
-  const hurts = !!foe && !foe.fainted && foe.revealedMoves.some(m => {
-    const move = dex.moves.get(m);
-    return move.exists && move.category !== 'Status' && (typeEffectiveness(move.type, pokemonTypes(me)) ?? 1) > 0;
-  });
   for (const action of input.legalActions) {
     if (action.kind !== 'move') continue;
     const slot = Number(action.command.split(' ')[1]) - 1;
@@ -1466,7 +1459,7 @@ export function healAtFullHP(input: DecisionInput) {
     // A heal that also boosts or cures does something at full HP too, so only the pure heals are skipped.
     if (!heals || move.boosts || move.self?.boosts) continue;
     // Nor is a heal idle when a faster opponent hits first: it restores that hit, as the search reckons it.
-    if (hurts && move.id !== 'rest' && turnOrder(s, me, move.name)?.order === 'theirs-first') continue;
+    if (move.id !== 'rest' && hitBeforeHeal(s, me, s.mySide, move.name)) continue;
     result.set(action.id, { by: 'full', reason: `${me.species} is at full HP, so ${move.name} restores nothing` });
   }
   return result;

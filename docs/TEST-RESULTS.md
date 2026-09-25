@@ -2376,3 +2376,18 @@ overruling the search, or a guard's fallback. Four fixes:
 - Other idle status moves are still skipped, as before.
 - The Wish/Protect test no longer expects Stealth Rock to be skipped. A new test covers Rapid Spin against Toxapex.
   436 tests pass, and preflight over 40 games gives no warnings.
+
+## A heal at full HP is not "certain to fail" against a faster hit (2026-09-25, audit-v12)
+
+- In 2687779585 Reuniclus, at full HP, faced a +1 Life Orb Falinks at 3% that had shown Knock Off. The search's pick
+  was Recover (0.692 on 36% of visits). `certainlyFails` removed it: viability.ts counted every heal at full HP as
+  certain to restore nothing.
+- Psyshock was played. Knock Off took Reuniclus to 20% and knocked off its Life Orb, then Life Orb recoil knocked
+  Falinks out before Psyshock could land. Recover would have restored the hit.
+- `hitBeforeHeal` in viability.ts now serves both that rule and `healAtFullHP`. A heal at full HP counts as idle only
+  unless the opponent surely moves first with a shown attack that can hurt us. Only our own Pokémon is judged,
+  since its speed is known.
+- Over all logged games, 6 of 9 live full-HP heal skips are lifted. In 4 the opponent did hit first (Regidrago,
+  Floatzel's 54%, Dudunsparce's Boomburst, this Falinks). In one, Tropius moved first without damaging us. The sixth
+  is the Ditto turn logged before its copied stats were kept.
+- Test: Recover is ruled out while Falinks has shown only No Retreat, and kept once Knock Off is shown. 437 pass.

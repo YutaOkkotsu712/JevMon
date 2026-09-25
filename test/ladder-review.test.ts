@@ -780,3 +780,15 @@ test('outhealed leaves Rapid Spin and a Defog that clears our hazards alone', ()
   assert.ok(names.includes('Avalanche'), `the attacks are still skipped: ${names.join(', ')}`);
   assert.ok(!names.includes('Rapid Spin'), 'Rapid Spin is for the hazards');
 });
+
+import { certainlyFails } from '../src/strategy/dominance.js';
+test('a heal at full HP is not ruled out when a faster opponent has shown an attack that lands first', () => {
+  // 2687779585: Reuniclus at full HP had Recover, the search's pick, ruled out as certain to restore nothing; the faster
+  // Falinks's Knock Off took it to 20%, Life Orb recoil knocked Falinks out, and Psyshock had nothing to hit.
+  const b = battle([ours('Reuniclus', 88, ['Psyshock', 'Recover', 'Focus Blast', 'Calm Mind'], 'Magic Guard', 'Life Orb', 'Steel')], 'Falinks', 84);
+  b.feed('|move|p2a: Foe|No Retreat|p2a: Foe'); b.feed('|-boost|p2a: Foe|spe|1'); b.feed('|turn|2');
+  assert.ok(labels(decide(b), certainlyFails(decide(b))).includes('Recover'), 'with only No Retreat shown, the heal is idle');
+  b.feed('|move|p2a: Foe|Knock Off|p1a: Reuniclus'); b.feed('|turn|3');
+  assert.ok(!labels(decide(b), certainlyFails(decide(b))).includes('Recover'), 'Knock Off lands first, and Recover restores it');
+  assert.equal(healAtFullHP(decide(b)).size, 0);
+});
