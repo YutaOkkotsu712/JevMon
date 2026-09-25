@@ -119,7 +119,7 @@ test('a defensive boost, or one taken when the opponent already outspeeds us, is
   assert.deepEqual(labels(input, setupRaceLost(input)), ['Swords Dance'], 'Gallade moves first now; one more Dragon Dance takes that away');
 });
 
-import { freeKnockoutPassedUp, healAtFullHP } from '../src/strategy/dominance.js';
+import { freeKnockoutPassedUp, healAtFullHP, savingTheDoomed } from '../src/strategy/dominance.js';
 
 test('a certain first-strike knockout is not passed up for setup or utility', () => {
   const mouse = [ours('Maushold-Four', 80, ['Tidy Up', 'Population Bomb', 'Bite', 'Encore'], 'Technician', 'Wide Lens', 'Normal')];
@@ -731,4 +731,38 @@ test('a burn used first stops a physical knockout only when the halved hit falls
   };
   assert.deepEqual(run(1), ['Swords Dance'], 'burned, Earthquake still deals far more than 1%');
   assert.deepEqual(run(60), [], 'burned, Earthquake may leave a 60% Pyroar standing while Swords Dance still works');
+});
+
+test('a weak Pokémon about to be knocked out is let go rather than a healthier one fed to the same hit', () => {
+  // 2687729196: Poliwrath at 23% faced Flamigo's revealed Close Combat; Baxcalibur came in at 57%, fell to 8%, and
+  // fainted next turn, and Poliwrath came back to faint anyway.
+  const roster = [ours('Poliwrath', 88, ['Circle Throw', 'Close Combat', 'Knock Off', 'Liquidation'], 'Swift Swim', 'Leftovers', 'Dark'),
+    ours('Baxcalibur', 75, ['Dragon Dance', 'Glaive Rush', 'Earthquake', 'Icicle Crash'], 'Thermal Exchange', 'Loaded Dice', 'Ground'),
+    ours('Slowking', 86, ['Psyshock', 'Slack Off', 'Chilly Reception', 'Thunder Wave'], 'Regenerator', 'Heavy-Duty Boots', 'Water')];
+  const b = battle(roster, 'Flamigo', 82);
+  b.feed('|move|p2a: Foe|Close Combat|p1a: Poliwrath'); b.feed('|turn|2');
+  const at = (hp: number) => {
+    const payload = b.payload(9, Math.round(roster[0]!.maxHP * hp), 0);
+    payload.side.pokemon[1]!.condition = `${Math.round(roster[1]!.maxHP * 0.57)}/${roster[1]!.maxHP}`;
+    b.feed(`|request|${JSON.stringify(payload)}`);
+    const request = parseChoiceRequest(JSON.stringify(payload))!;
+    return { state: b.state, legalActions: generateLegalActions(request), request };
+  };
+  const doomed = at(0.23), skipped = savingTheDoomed(doomed);
+  const names = labels(doomed, skipped);
+  assert.ok(names.some(n => n.includes('Baxcalibur')), `Baxcalibur is not fed to Close Combat: ${names.join(', ')}`);
+  assert.ok(!names.some(n => n.includes('Slowking')), 'Slowking resists it, so that switch stays open');
+  assert.match([...skipped.values()][0]!.reason, /knocks Poliwrath \(23%\) out at every sampled roll/);
+  assert.equal(savingTheDoomed(at(1)).size, 0, 'at full HP Close Combat does not knock Poliwrath out, so nothing is sacrificed');
+});
+
+import { unsupportedReason } from '../src/strategy/calcCore.js';
+test('a two-turn move charging in reach keeps the estimates; one out of reach does not', () => {
+  // A charging Eternatus's Meteor Beam dropped every estimate once the charge was recorded.
+  const b = battle([ours('Garchomp', 77, ['Earthquake', 'Dragon Claw'], 'Rough Skin', 'Loaded Dice', 'Steel')], 'Eternatus', 72);
+  b.feed('|-prepare|p2a: Foe|Meteor Beam'); b.feed('|-boost|p2a: Foe|spa|1');
+  const foe = b.state.sides.p2.team[0]!;
+  assert.equal(unsupportedReason(b.state, foe), null);
+  b.feed('|turn|2'); b.feed('|move|p2a: Foe|Meteor Beam|p1a: Garchomp'); b.feed('|-prepare|p2a: Foe|Dig'); b.feed('|turn|3');
+  assert.match(unsupportedReason(b.state, foe) ?? '', /dig/i, 'underground, it cannot be hit, which the calculator does not model');
 });

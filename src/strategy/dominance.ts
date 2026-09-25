@@ -13,6 +13,7 @@ import { afterTerastallizing } from './forme.js';
 import { defensiveTera } from './projection.js';
 import { breaksMoulds } from './abilities.js';
 import { afterEntry } from './entry.js';
+import { switchRelief } from './switchRelief.js';
 import { residuals } from './residual.js';
 import { plausibleMoves } from './setPriors.js';
 import type { BattleState, PokemonState, SideId } from '../battle/BattleState.js';
@@ -1638,6 +1639,49 @@ export function pickedOffOnArrival(input: DecisionInput) {
   for (const [actionId, move] of doomedBy) {
     const species = targets.find(t => t.action.id === actionId)!.p!.species;
     result.set(actionId, { by: 'priority', reason: `${foe.species}'s ${move} moves first and knocks ${species} out at every sampled roll once it is in, before it can act; another replacement survives it` });
+  }
+  return result;
+}
+
+/**
+ * Switching a healthier Pokémon into the hit that was about to knock out a weak one. Poliwrath at 23% faced a Flamigo
+ * that had shown Close Combat; Baxcalibur came in at 57% to take it, fell to 8%, fainted next turn, and Poliwrath came
+ * back to faint anyway (2687729196). Left in, Poliwrath is the only loss, and whatever replaces it comes in free.
+ *
+ * Narrow: a revealed attack that cannot miss knocks our active out at every sampled roll. Only a switch whose Pokémon,
+ * after entry hazards, loses more HP to every such attack than switching saves (our active's HP, plus Regenerator's
+ * third), and at least half of its own, is skipped. A switch-in
+ * that resists or is immune stays open, and a healthy active is never sacrificed this way, since nothing loses more.
+ */
+export function savingTheDoomed(input: DecisionInput) {
+  const result = new Map<string, { by: string; reason: string }>();
+  const s = input.state;
+  if (!s.mySide || s.requestKind !== 'move' || input.request?.forceSwitch?.[0]) return result;
+  const side = s.mySide, foeSide: SideId = side === 'p1' ? 'p2' : 'p1';
+  const me = s.sides[side].team.find(p => p.id === s.sides[side].activeId), foe = s.sides[foeSide].team.find(p => p.id === s.sides[foeSide].activeId);
+  if (!me || !foe || me.fainted || foe.fainted || me.hpPercent === null) return result;
+  // What leaving saves: the HP our active keeps, plus Regenerator's third. Cleared stat drops or effects are worth
+  // something only to a Pokémon that survives, which is the very thing the switch-in pays for: Poliwrath's -1 Defense
+  // going away was no reason to feed Baxcalibur to Close Combat.
+  const saved = me.hpPercent + (switchRelief(s, me, side)?.regeneratorHealsPercentOfMaxHP ?? 0);
+  let staying; try { staying = incomingThreats(s, me, side, Infinity); } catch { return result; }
+  const doom = (staying?.damagingMoves ?? []).filter(m => m.revealed && m.conditionalKO === 'all-sampled-rolls' &&
+    m.accuracyPercent === undefined && !m.substitute).map(m => m.move);
+  if (!doom.length) return result;
+  for (const action of input.legalActions) {
+    if (action.kind !== 'switch') continue;
+    const target = s.sides[side].team.find(p => p.slot === Number(action.command.split(' ')[1]));
+    if (!target || target.fainted) continue;
+    let threat; try { threat = incomingThreats(s, target, side, Infinity); } catch { continue; }
+    const arriving = afterEntry(s, target, side).hpPercent ?? target.hpPercent ?? 100;
+    // Every attack that dooms our active must cost the switch-in dearly: the opponent picks which.
+    const losses = doom.map(move => {
+      const hit = threat?.damagingMoves.find(m => id(m.move) === id(move));
+      return hit && !hit.takesNothingBecauseOfOurAbility ? Math.min(arriving, hit.percentOfMaxHP[0]) : 0;
+    });
+    const least = Math.min(...losses);
+    if (least <= saved || least < arriving / 2) continue;
+    result.set(action.id, { by: 'sack', reason: `${foe.species}'s ${doom.join(' or ')} knocks ${me.species} (${Math.round(me.hpPercent)}%) out at every sampled roll, and ${target.species} would lose at least ${Math.round(least)}% of its ${Math.round(arriving)}% taking it instead: more than switching saves, so let ${me.species} go and bring the next Pokémon in free` });
   }
   return result;
 }

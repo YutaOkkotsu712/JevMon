@@ -2334,3 +2334,30 @@ overruling the search, or a guard's fallback. Four fixes:
 - The default is now to show the shares in every mode, and `SEARCH_IN_PAYLOAD=false` hides them. The stray line in
   `.env` is back to blank. Play is unchanged, since the default is what was running.
 - `INSTRUCTIONS_VERSION` is `2026-09-25-audit-v9`.
+
+## Let the doomed Pokémon go: `savingTheDoomed` (2026-09-25, audit-v10)
+
+- In 2687729196 Poliwrath, at 23%, faced a Flamigo that had shown Close Combat. The search rated every option 0.013 to
+  0.014 on even visits, a lost position by its reckoning, so Jev's 0.42 on switching to Baxcalibur decided it.
+  Baxcalibur came in at 57%, fell to 8% and fainted the next turn. Poliwrath came back and fainted anyway, and Flamigo
+  swept.
+- The new guard applies when a revealed attack that cannot miss knocks our active out at every sampled roll. It skips
+  a switch whose Pokémon, after entry hazards, would lose more HP to every such attack than switching saves, and at
+  least half of its own. Switching saves our active's HP plus Regenerator's third.
+- Cleared stat drops or effects are left out of what switching saves: they only help a Pokémon that survives, which
+  is what the switch-in pays for. A switch-in that resists stays open, and a healthy active is never let go, because
+  no switch-in can lose more than it has.
+- Replayed over all 324 logged games, it would have skipped 31 played switches (0.4% of move decisions). The switch-in
+  often fainted soon after (Ditto, Ursaluna, Stantler, Ceruledge, Stonjourner, Slowking, Hitmonchan) or lost a large
+  share: Ting-Lu fell to 7% to save a Staraptor at 1%. We lost 22 of those 31 games, which is outcome-biased but
+  consistent.
+- Test: Baxcalibur is skipped and a resisting Slowking is not; at full HP nothing fires.
+
+## Two-turn charges in reach keep the estimates (2026-09-25)
+
+- Since '-prepare' was recorded as a volatile (c51fb91), a charging Eternatus counted as an unmodelled volatile, which
+  dropped every damage estimate for that turn. Charges that leave their user in reach change no damage, so they now
+  count as modelled: Meteor Beam, Electro Shot, Solar Beam and Blade, Skull Bash, Sky Attack, Razor Wind, Freeze Shock,
+  Ice Burn and Geomancy.
+- Fly, Dig, Dive, Bounce, Phantom Force and Shadow Force stay unmodelled, since their user cannot be hit.
+- 435 tests pass. Preflight over 40 games gives no warnings. `INSTRUCTIONS_VERSION` is `2026-09-25-audit-v10`.

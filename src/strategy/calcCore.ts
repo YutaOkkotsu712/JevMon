@@ -165,7 +165,13 @@ const modelledVolatile = (key: string) => damageNeutral.has(id(key)) || /^perish
   || id(key) === 'flashfire' // Mapped to the calculator's abilityOn when Flash Fire is still active.
   || id(key) === 'charge' // Doubles the next Electric attack through the calculator's attacker-side flag.
   || id(key) === 'glaiverush' // Doubled in scenario() for a hit that lands before its holder next moves.
-  || id(key) === 'typechange'; // Protean, Libero, Soak, Burn Up: the new typing is passed to the calculator in buildPokemon.
+  || id(key) === 'typechange' // Protean, Libero, Soak, Burn Up: the new typing is passed to the calculator in buildPokemon.
+  // The charging turn of a two-turn move that stays in reach: it changes no damage, and Meteor Beam's or Electro Shot's
+  // boost arrives as its own -boost line. Recorded since 2026-09-25, it dropped every estimate for a charging Eternatus.
+  // Fly, Dig, Dive, Bounce and the Ghost moves stay unmodelled, since their user is out of reach.
+  || chargingInReach.has(id(key));
+const chargingInReach = new Set(['meteorbeam', 'electroshot', 'solarbeam', 'solarblade', 'skullbash', 'skyattack', 'razorwind',
+  'freezeshock', 'iceburn', 'geomancy']);
 /**
  * Glaive Rush leaves its user taking double damage until it next moves, so a hit is doubled only if it lands first.
  * Our hit on their Glaive Rush user counts it only when we surely act first; their hit on ours counts it unless we
