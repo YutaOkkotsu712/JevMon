@@ -22999,3 +22999,59 @@ fn test_a_pending_future_sight_strikes_at_the_end_of_its_last_turn() {
     assert!(after.side_two.get_active_immutable().hp < before, "the side it was cast on takes the hit");
     assert_eq!(0, after.side_one.future_sight.0);
 }
+
+fn lash_out_damage(state: &mut State, their_move: Choices) -> i16 {
+    state.side_one.get_active().speed = 50;
+    state.side_two.get_active().speed = 100;
+    state.side_two.get_active().hp = 1000;
+    state.side_two.get_active().maxhp = 1000;
+    let instructions =
+        set_moves_on_pkmn_and_call_generate_instructions(state, Choices::LASHOUT, their_move);
+    damage_to(&instructions, SideReference::SideTwo)
+}
+
+#[test]
+fn test_lash_out_doubles_after_the_opponent_lowers_the_users_stats_first() {
+    let plain = lash_out_damage(&mut State::default(), Choices::SPLASH);
+    // Eerie Impulse lowers only Special Attack, so the physical hit is exactly doubled.
+    let doubled = lash_out_damage(&mut State::default(), Choices::EERIEIMPULSE);
+    assert!(doubled >= 2 * plain - 2 && doubled <= 2 * plain + 2, "150 against 75: {} against {}", doubled, plain);
+    // Strength Sap's drop sits outside its Choice: -1 Attack and double power is about four thirds.
+    let sapped = lash_out_damage(&mut State::default(), Choices::STRENGTHSAP);
+    assert!(sapped > plain * 5 / 4, "Strength Sap doubles it too: {} against {}", sapped, plain);
+}
+
+#[test]
+fn test_lash_out_is_not_doubled_when_it_moves_first_or_the_drop_is_blocked() {
+    let plain = lash_out_damage(&mut State::default(), Choices::SPLASH);
+    let mut first = State::default();
+    first.side_one.get_active().speed = 150;
+    first.side_two.get_active().speed = 100;
+    first.side_two.get_active().hp = 1000;
+    first.side_two.get_active().maxhp = 1000;
+    let instructions =
+        set_moves_on_pkmn_and_call_generate_instructions(&mut first, Choices::LASHOUT, Choices::EERIEIMPULSE);
+    assert_eq!(plain, damage_to(&instructions, SideReference::SideTwo), "moving first, nothing was lowered yet");
+    let mut amulet = State::default();
+    amulet.side_one.get_active().item = Items::CLEARAMULET;
+    assert_eq!(plain, lash_out_damage(&mut amulet, Choices::EERIEIMPULSE), "Clear Amulet stops the drop");
+}
+
+#[test]
+fn test_lash_out_doubles_against_an_intimidate_switch_in() {
+    let hit = |ability: Abilities| {
+        let mut state = State::default();
+        state.side_one.get_active().replace_move(PokemonMoveIndex::M0, Choices::LASHOUT);
+        state.side_two.pokemon[PokemonIndex::P1].ability = ability;
+        state.side_two.pokemon[PokemonIndex::P1].hp = 1000;
+        state.side_two.pokemon[PokemonIndex::P1].maxhp = 1000;
+        let instructions = generate_instructions_with_state_assertion(
+            &mut state,
+            &MoveChoice::Move(PokemonMoveIndex::M0),
+            &MoveChoice::Switch(PokemonIndex::P1),
+        );
+        damage_to(&instructions, SideReference::SideTwo)
+    };
+    let (plain, intimidated) = (hit(Abilities::NONE), hit(Abilities::INTIMIDATE));
+    assert!(intimidated > plain * 5 / 4, "-1 Attack and double power: {} against {}", intimidated, plain);
+}

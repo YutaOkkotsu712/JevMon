@@ -33,6 +33,31 @@ const CHOICE_THAWS_USER: [Choices; 10] = [
     Choices::MATCHAGOTCHA,
 ];
 
+/// Whether a move surely lowers one of its target's stats when it lands: a status move's own drop, a secondary drop with
+/// no chance roll, or Strength Sap, whose Attack drop is applied outside its Choice.
+fn lowers_opponent_stats(choice: &Choice) -> bool {
+    let lowered = |b: &StatBoosts| {
+        b.attack < 0
+            || b.defense < 0
+            || b.special_attack < 0
+            || b.special_defense < 0
+            || b.speed < 0
+            || b.accuracy < 0
+    };
+    choice.move_id == Choices::STRENGTHSAP
+        || choice
+            .boost
+            .as_ref()
+            .is_some_and(|b| b.target == MoveTarget::Opponent && lowered(&b.boosts))
+        || choice.secondaries.as_ref().is_some_and(|secondaries| {
+            secondaries.iter().any(|s| {
+                s.chance >= 100.0
+                    && s.target == MoveTarget::Opponent
+                    && matches!(&s.effect, Effect::Boost(b) if lowered(b))
+            })
+        })
+}
+
 pub fn modify_choice(
     state: &State,
     attacker_choice: &mut Choice,
@@ -550,6 +575,39 @@ pub fn modify_choice(
         }
         Choices::AVALANCHE => {
             if !attacker_choice.first_move && defending_side.damage_dealt.damage > 0 {
+                attacker_choice.base_power *= 2.0;
+            }
+        }
+        Choices::LASHOUT => {
+            // Doubled when the user's stats were lowered this turn: by the opponent's move before it, or by Intimidate
+            // on a Pokémon that switched in first. Sinistcha healed to full with Strength Sap into Oinkologne's Lash Out
+            // and was knocked out by the doubled hit the search had priced at 75.
+            let user = attacking_side.get_active_immutable();
+            let guarded = matches!(
+                user.ability,
+                Abilities::CLEARBODY
+                    | Abilities::WHITESMOKE
+                    | Abilities::FULLMETALBODY
+                    | Abilities::MIRRORARMOR
+                    | Abilities::CONTRARY
+            ) || user.item == Items::CLEARAMULET;
+            let intimidated = defender_choice.category == MoveCategory::Switch
+                && defending_side.get_active_immutable().ability == Abilities::INTIMIDATE
+                && !matches!(
+                    user.ability,
+                    Abilities::INNERFOCUS
+                        | Abilities::OBLIVIOUS
+                        | Abilities::OWNTEMPO
+                        | Abilities::SCRAPPY
+                        | Abilities::GUARDDOG
+                );
+            let behind_substitute = attacking_side
+                .volatile_statuses
+                .contains(&PokemonVolatileStatus::SUBSTITUTE);
+            if !attacker_choice.first_move
+                && !guarded
+                && (intimidated || (!behind_substitute && lowers_opponent_stats(defender_choice)))
+            {
                 attacker_choice.base_power *= 2.0;
             }
         }
