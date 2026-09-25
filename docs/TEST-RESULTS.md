@@ -2212,3 +2212,23 @@ Tests: 408 pass.
   left alone.
 - One new test covering both clues, the revert on switch-out, and two non-triggers (Gholdengo's own Ghost immunity to
   Fighting, and an immunity from an ability). 427 pass. The engine took all 830 logged positions.
+
+## Setup against an attack in a near tie goes to Jev (2026-09-25, audit-v7)
+
+- In the three games after reaching the top 100 (1–2), the blend chose a Dragon Dance three times where Jev wanted the
+  attack and the search's scores were within 0.03. The search had twice the visits, so the 2026-09-24 visits rule gave
+  it the pick.
+  - Lapras set up on a 29% Seviper, which hit it to 11% and switched out.
+  - Feraligatr set up into Glare.
+  - Crawdaunt set up into Close Combat.
+- `blendChoice` now gives the provider the pick when the search's choice raises our own stats (a self-targeted boost,
+  or Belly Drum, No Retreat, Clangorous Soul, Fillet Away, Geomancy, Tidy Up), the provider's is an attack, and the
+  scores are within the margin, whatever the visits.
+  - Two attacks keep the visits rule.
+  - A lead beyond the margin stays with the search.
+- Replayed over the last 30 games it changes 7 of 846 decisions, all setup to attack, 5 of them in losses. The
+  Calm Mind over Judgment test (2687148187) now expects Judgment.
+- The visits rule was made because Jev's bias against setup was passing into play. This exception covers only
+  setup against an attack at under 0.03, where the search's +30 a stage is the likelier error. It cannot be benched
+  offline, since the bench plays without Jev.
+- 427 pass. `INSTRUCTIONS_VERSION` is `2026-09-25-audit-v7`, to separate these games.

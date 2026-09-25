@@ -340,9 +340,17 @@ test('scores inside the margin are not a tie when the search gave its pick twice
   ] as const;
   const prior = { cm: 0.19, judgment: 0.61, recover: 0.2 };
   const values = { cm: { visitShare: 0.452, meanScore: 0.353 }, judgment: { visitShare: 0.114, meanScore: 0.324 }, recover: { visitShare: 0.1, meanScore: 0.3 } };
-  assert.equal(blendChoice([...actions], prior, 'judgment', values, 0.7, 0.03).pick?.chosen, 'cm');
+  // Since 2026-09-25 a boost against an attack within the margin goes to the provider whatever the visits: the search
+  // values each stage in full, and three such Dragon Dances were punished in one session.
+  assert.equal(blendChoice([...actions], prior, 'judgment', values, 0.7, 0.03).pick?.chosen, 'judgment', 'Calm Mind over Judgment by 0.029: Jev attacks');
   const even = { ...values, cm: { visitShare: 0.4, meanScore: 0.353 }, judgment: { visitShare: 0.3, meanScore: 0.324 } };
   assert.equal(blendChoice([...actions], prior, 'judgment', even, 0.7, 0.03).pick?.chosen, 'judgment', 'visits this close are a real tie: the provider settles it');
+  // Outside the margin the search's boost stands, and between two attacks the visits rule is unchanged.
+  const clear = { ...values, cm: { visitShare: 0.452, meanScore: 0.383 } };
+  assert.equal(blendChoice([...actions], prior, 'judgment', clear, 0.7, 0.03).pick?.chosen, 'cm', 'a lead of 0.059 is the search\'s');
+  const attacks = [{ id: 'eq', kind: 'move', label: 'Earthquake', command: 'move 1', uncertain: false }, { id: 'judgment', kind: 'move', label: 'Judgment', command: 'move 2', uncertain: false }] as const;
+  const twoAttacks = { eq: { visitShare: 0.452, meanScore: 0.353 }, judgment: { visitShare: 0.114, meanScore: 0.324 } };
+  assert.equal(blendChoice([...attacks], { eq: 0.3, judgment: 0.7 }, 'judgment', twoAttacks, 0.7, 0.03).pick?.chosen, 'eq', 'two attacks keep the visits rule');
 });
 
 test('a Tera is played only when the search ranks it above the same move without Tera', () => {
