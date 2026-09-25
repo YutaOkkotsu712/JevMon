@@ -41,13 +41,20 @@ export function certainlyFails(input: DecisionInput) {
   const ours = s.sides[s.mySide], theirs = s.sides[s.mySide === 'p1' ? 'p2' : 'p1'];
   const me = ours.team.find(p => p.id === ours.activeId), foe = theirs.team.find(p => p.id === theirs.activeId);
   if (!me || me.fainted) return result;
+  // Asleep with no Sleep Talk or Snore, every move fails alike, and using one still counts a sleep turn down where a
+  // switch keeps it; so sleep alone skips nothing, and staying or switching is left to the ranking. Skipping all four
+  // left Misdreavus only a switch to Greninja, which Pachirisu's Thunderbolt knocked out; the search had staying at
+  // 0.563 against 0.370 (2687779585).
+  const sleepTalks = input.legalActions.some(a => a.kind === 'move' && ['sleeptalk', 'snore'].includes(id(a.label.split(' + Tera')[0]!)));
   for (const action of input.legalActions) {
     if (action.kind !== 'move' || action.command.endsWith(' terastallize')) continue;
     const slot = Number(action.command.split(' ')[1]) - 1;
     const move = dex.moves.get(input.request?.active?.[0]?.moves[slot]?.id ?? action.label);
     if (!move.exists) continue;
-    const reason = certainFailure(s, move.name, me, s.mySide, foe && !foe.fainted ? foe : undefined);
-    if (reason) result.set(action.id, { by: 'certain-failure', reason: `${move.name}: ${reason}` });
+    const reasons = (effectViability(s, move.name, me, s.mySide, foe && !foe.fainted ? foe : undefined)?.certain ?? [])
+      .filter(r => !/helps the target|only removes the berry/.test(r))
+      .filter(r => sleepTalks || !/only Sleep Talk or Snore can act/.test(r));
+    if (reasons.length) result.set(action.id, { by: 'certain-failure', reason: `${move.name}: ${reasons[0]}` });
   }
   return result;
 }

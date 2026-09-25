@@ -2391,3 +2391,15 @@ overruling the search, or a guard's fallback. Four fixes:
   Floatzel's 54%, Dudunsparce's Boomburst, this Falinks). In one, Tropius moved first without damaging us. The sixth
   is the Ditto turn logged before its copied stats were kept.
 - Test: Recover is ruled out while Falinks has shown only No Retreat, and kept once Knock Off is shown. 437 pass.
+
+## Asleep without Sleep Talk, sleep alone no longer forces a switch (2026-09-26, audit-v13)
+
+- `certainlyFails` skipped every move of a sleeper that could not wake this turn, which left only switches. In
+  2687779585 Misdreavus, asleep at 50%, was switched to Greninja. The search had staying at 0.563 against 0.370, and
+  Pachirisu's Thunderbolt knocked Greninja out.
+- Every move fails alike while asleep, and choosing one still counts a sleep turn down, where a switch keeps it. So
+  without Sleep Talk or Snore, the sleep reason no longer skips anything; other certain failures still do. With Sleep
+  Talk or Snore, the other moves still give way to it.
+- In the logs, sleep forced 3 switches, all to Pokémon the search rated below staying: Greninja fainted, and
+  Indeedee took 45%.
+- Test covers both cases. 438 pass.

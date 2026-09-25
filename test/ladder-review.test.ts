@@ -792,3 +792,17 @@ test('a heal at full HP is not ruled out when a faster opponent has shown an att
   assert.ok(!labels(decide(b), certainlyFails(decide(b))).includes('Recover'), 'Knock Off lands first, and Recover restores it');
   assert.equal(healAtFullHP(decide(b)).size, 0);
 });
+
+test('asleep without Sleep Talk, sleep alone does not skip every move and force a switch', () => {
+  // 2687779585: Misdreavus asleep at 50% had all four moves skipped as certain to fail, so the only action left was a
+  // switch to Greninja, which Pachirisu's Thunderbolt knocked out. The search had staying at 0.563 against 0.370, and a
+  // turn spent asleep counts the sleep down where a switch keeps it.
+  const roster = [ours('Misdreavus', 90, ['Draining Kiss', 'Will-O-Wisp', 'Calm Mind', 'Shadow Ball'], 'Levitate', 'Eviolite', 'Fairy'),
+    ours('Greninja', 80, ['Hydro Pump', 'Dark Pulse', 'Ice Beam', 'U-turn'], 'Protean', 'Choice Specs', 'Water')];
+  const b = battle(roster, 'Pachirisu', 96);
+  b.feed('|-status|p1a: Misdreavus|slp'); b.feed('|turn|2');
+  assert.equal(certainlyFails(decide(b)).size, 0, 'every move fails alike, so none is skipped for the switch');
+  const talker = battle([ours('Misdreavus', 90, ['Sleep Talk', 'Will-O-Wisp', 'Calm Mind', 'Shadow Ball'], 'Levitate', 'Eviolite', 'Fairy'), roster[1]!], 'Pachirisu', 96);
+  talker.feed('|-status|p1a: Misdreavus|slp'); talker.feed('|turn|2');
+  assert.deepEqual(labels(decide(talker), certainlyFails(decide(talker))), ['Calm Mind', 'Shadow Ball', 'Will-O-Wisp'], 'with Sleep Talk, the rest still give way to it');
+});
