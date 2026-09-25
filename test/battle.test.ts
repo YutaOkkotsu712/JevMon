@@ -335,3 +335,15 @@ test('a charge move that fires is no longer charging, whether by Power Herb or o
   feed(t, '|move|p1a: Eternatus|Meteor Beam|p2a: Sparky|[from] lockedmove\n|turn|6');
   assert.equal(eternatus.volatiles.meteorbeam, undefined, 'and once it fires, the charge is over');
 });
+
+test('a berry eaten this turn is not handed back by the line that reports its heal', () => {
+  // 2687862037: Drifblim's Sitrus Berry heal, reported after its -enditem, put the berry back, so Unburden was never counted.
+  const t = tracker();
+  feed(t, '|switch|p2a: Drifblim|Drifblim, L90, M|40/100\n|turn|5');
+  feed(t, '|-enditem|p2a: Drifblim|Sitrus Berry|[eat]\n|-heal|p2a: Drifblim|65/100|[from] item: Sitrus Berry\n|turn|6');
+  const drifblim = t.state.sides.p2.team.find(p => p.species === 'Drifblim')!;
+  assert.equal(drifblim.item, '', 'the berry is gone');
+  assert.equal(drifblim.lastBerry, 'Sitrus Berry');
+  feed(t, '|-damage|p2a: Drifblim|55/100|[from] item: Life Orb\n|turn|7');
+  assert.equal(drifblim.item, 'Life Orb', 'an item seen on a later turn is still revealed');
+});

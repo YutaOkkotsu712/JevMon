@@ -877,8 +877,8 @@ export function recoilIntoRecovery(input: DecisionInput) {
  * likely loses the turn, and against a Pokémon that boosts, a lost turn is a free boost.
  *
  * Narrow: our active is asleep from a move rather than Rest, has no Sleep Talk, and acts this turn at most half the time;
- * the opponent already holds a boost or has a revealed or near-certain boosting move; and some switch survives its
- * entry. Only the sleeper's moves are skipped.
+ * the opponent already holds a boost or has a revealed or near-certain boosting move; and some switch answers it: it
+ * lives through its entry and then through a second hit, or moves first. Only the sleeper's moves are skipped.
  */
 export function asleepWhileTheyBoost(input: DecisionInput) {
   const result = new Map<string, { by: string; reason: string }>();
@@ -895,7 +895,23 @@ export function asleepWhileTheyBoost(input: DecisionInput) {
     const move = dex.moves.get(m.move);
     return move.category === 'Status' && move.target === 'self' && Object.values(move.boosts ?? {}).some(v => (v ?? 0) > 0);
   })());
-  if ((!boosted.length && !setup) || !escapable(input)) return result;
+  if (!boosted.length && !setup) return result;
+  // Only an answer is worth the switch: a Pokémon that lives through its entry and then either lives through a second
+  // hit or moves first. Iron Jugulis, asleep, was switched to an Arcanine that a +2 Drifblim's Shadow Ball took to 39%
+  // and knocked out next turn before it moved; the search had staying at 0.197 against 0.170 (2687862037).
+  const answers = input.legalActions.some(a => {
+    if (a.kind !== 'switch' || a.uncertain) return false;
+    const target = ours.team.find(p => p.slot === Number(a.command.split(' ')[1]));
+    if (!target || target.fainted) return false;
+    let threat; try { threat = incomingThreats(s, target, side, Infinity); } catch { return false; }
+    const likely = (threat?.damagingMoves ?? []).filter(m => m.revealed || (m.priorProbability ?? 0) >= 0.5);
+    const worst = Math.max(0, ...likely.map(m => m.percentOfMaxHP[1]));
+    const arriving = afterEntry(s, target, side).hpPercent ?? target.hpPercent ?? 100;
+    if (worst >= arriving) return false;
+    let first = false; try { first = speedSummary(s, target).relation === 'faster-than-all-samples'; } catch { first = false; }
+    return 2 * worst < arriving || first;
+  });
+  if (!answers) return result;
   const why = boosted.length ? `${foe.species} is already boosted (${boosted.join(', ')})` : `${foe.species} has ${setup!.move}`;
   for (const action of input.legalActions) {
     if (action.kind !== 'move') continue;

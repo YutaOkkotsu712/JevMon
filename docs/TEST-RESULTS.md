@@ -2421,3 +2421,22 @@ overruling the search, or a guard's fallback. Four fixes:
   - Over all logs, the search split evenly on such switches: it preferred staying in 37 of 71 cases (median gap
     0.002), so the guard rarely overrules a confident search.
 - Tests: the Power Herb, charge and fire sequence; Iron Leaves and Quaquaval. 440 pass. Preflight gives no warnings.
+
+## An eaten berry stays eaten, and a sleeper is switched only for an answer (2026-09-26, audit-v15)
+
+- **Consumed items came back.** Showdown reports a Sitrus Berry as `-enditem ... [eat]` and then its heal as
+  `-heal ... [from] item: Sitrus Berry`. The tracker read the second line as revealing the item and put the berry back.
+  - In 2687862037 Drifblim therefore kept its berry in our state, and its Unburden was never counted.
+  - The speed model had our Arcanine at 208 outspeeding a Drifblim really at 374. Drifblim knocked Arcanine out before
+    it moved.
+  - The same happened to every berry, Power Herb and White Herb followed by an effect line.
+  - A `[from] item:` line no longer sets the item when that item was lost earlier the same turn.
+  - With the berry gone, the same position gives Drifblim 374 and "theirs first".
+- **`asleepWhileTheyBoost` needs an answer.** It skipped a sleeping Iron Jugulis's moves for a switch to Arcanine, the
+  search's lower pick (0.170 against staying at 0.197). Arcanine took 61% on entry and fell before moving, and Iron
+  Jugulis then fell asleep in. It was the guard's only live firing in the logs.
+  - It now fires only when some switch-in answers the booster: it lives through its entry, then either lives through a
+    second hit or moves first.
+  - The original Reshiram test now has a Toxapex answer. Its Gardevoir version, slower and badly hit by Sludge Bomb, no
+    longer fires.
+- Tests: the berry heal line; both sleeper cases. 441 pass.

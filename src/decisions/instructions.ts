@@ -1,5 +1,5 @@
 /** Versioned so offline audits can distinguish the policy text used by a live decision. */
-export const INSTRUCTIONS_VERSION = '2026-09-26-audit-v14';
+export const INSTRUCTIONS_VERSION = '2026-09-26-audit-v15';
 /**
  * Sent only with search values, so it costs nothing while search is off. It says what the numbers are and how much to
  * trust them: a lookahead that sees multi-turn consequences, but over guessed sets and a simplified engine.

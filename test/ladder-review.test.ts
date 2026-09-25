@@ -31,9 +31,15 @@ test('a healer that restores more than every hit is not attacked forever', () =>
   assert.equal(outhealed(decide(b)).size, 0, 'a certain knockout ends the stall, so nothing is skipped');
 });
 
-test('a sleeper is not left in while the opponent sets up', () => {
+test('a sleeper is not left in while the opponent sets up, when a switch can answer it', () => {
+  // The answer must live through its entry and a second hit, or move first. Toxapex takes Darkrai's hits; Gardevoir,
+  // slower and hit hard by Sludge Bomb, is sent in only to fall too, as Arcanine was to a Drifblim (2687862037).
+  const lone = battle([ours('Reshiram', 76, ['Blue Flare', 'Draco Meteor', 'Earth Power', 'Will-O-Wisp'], 'Turboblaze', 'Heavy-Duty Boots', 'Fire'),
+    ours('Gardevoir', 86, ['Moonblast', 'Psyshock', 'Mystical Fire', 'Calm Mind'], 'Trace', 'Life Orb', 'Fairy')], 'Darkrai', 77);
+  lone.feed('|move|p2a: Foe|Hypnosis|p1a: Reshiram'); lone.feed('|-status|p1a: Reshiram|slp'); lone.feed('|turn|2');
+  assert.equal(asleepWhileTheyBoost(decide(lone)).size, 0, 'no switch answers Darkrai, so the choice is left to the search');
   const roster = [ours('Reshiram', 76, ['Blue Flare', 'Draco Meteor', 'Earth Power', 'Will-O-Wisp'], 'Turboblaze', 'Heavy-Duty Boots', 'Fire'),
-    ours('Gardevoir', 86, ['Moonblast', 'Psyshock', 'Mystical Fire', 'Calm Mind'], 'Trace', 'Life Orb', 'Fairy')];
+    ours('Toxapex', 84, ['Surf', 'Toxic', 'Recover', 'Haze'], 'Regenerator', 'Black Sludge', 'Steel')];
   const b = battle(roster, 'Darkrai', 77);
   b.feed('|move|p2a: Foe|Hypnosis|p1a: Reshiram'); b.feed('|-status|p1a: Reshiram|slp'); b.feed('|turn|2');
   const input = decide(b), skipped = asleepWhileTheyBoost(input);

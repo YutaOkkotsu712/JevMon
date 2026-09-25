@@ -491,7 +491,11 @@ export class BattleTracker {
       // Do not promote an ability acquired through Skill Swap or Trace to the original ability.
       rememberNativeAbility(target, target.ability);
     }
-    if (target && source?.startsWith('[from] item: ') && message.type !== '-enditem') target.item = source.slice(13);
+    // An item used up this turn names itself once more for its effect: the Sitrus Berry's heal comes after its -enditem.
+    // Taken as a reveal, it handed the berry back, so Drifblim's Unburden never doubled its Speed and our Arcanine was
+    // judged faster than the Drifblim that knocked it out first (2687862037).
+    const spent = target?.item === '' && target.itemLostOnTurn === this.state.turn;
+    if (target && source?.startsWith('[from] item: ') && message.type !== '-enditem' && !spent) target.item = source.slice(13);
     // Delayed recovery is spent once it lands.
     if (source && id) {
       if (/^\[from\] move: Wish/.test(source)) delete this.state.sides[id].slotConditions.wish;
