@@ -1,4 +1,5 @@
 import type { ProtocolMessage } from '../showdown/protocol.js';
+import { spriteId } from './arena.js';
 import { dex, id } from '../pokemon/data.js';
 
 /**
@@ -7,7 +8,14 @@ import { dex, id } from '../pokemon/data.js';
  * are read — never the private request — and nothing from chat. Text is plain; the page escapes it.
  */
 export type Tone = 'move' | 'damage' | 'heal' | 'boost' | 'drop' | 'status' | 'faint' | 'switch' | 'field' | 'tera' | 'info' | 'result' | 'miss';
-export interface FeedEvent { seq: number; turn: number; phase: 'action' | 'end'; side: 'p1' | 'p2' | null; tone: Tone; text: string; setup?: true }
+/**
+ * What an event did to the Pokémon it names, as data rather than words, so a replay can move the arena one event at a
+ * time: the HP it was left on, the species that came in, a status, a stat stage, a Tera type or a faint.
+ */
+export interface FeedEffect { hp?: number; species?: string; sprite?: string; status?: string | null; stat?: string; stage?: number;
+  clearBoosts?: true; tera?: string; faint?: true }
+export interface FeedEvent { seq: number; turn: number; phase: 'action' | 'end'; side: 'p1' | 'p2' | null; tone: Tone; text: string; setup?: true;
+  fx?: FeedEffect }
 export interface BattleResult { winner: string | null; tie: boolean; turns: number; faints: { p1: number; p2: number };
   names: { p1: string | null; p2: string | null }; ratings: Record<string, { before: number; after: number }> }
 
@@ -53,8 +61,9 @@ export class BattleFeed {
   handle(message: ProtocolMessage): FeedEvent[] {
     const out: FeedEvent[] = [];
     const parts = message.data.split('|');
-    const add = (side: 'p1' | 'p2' | null, tone: Tone, text: string, setup?: boolean) => {
-      const e: FeedEvent = { seq: ++this.seq, turn: this.turn, phase: this.phase, side, tone, text, ...(setup ? { setup: true as const } : {}) };
+    const add = (side: 'p1' | 'p2' | null, tone: Tone, text: string, setup?: boolean, fx?: FeedEffect) => {
+      const e: FeedEvent = { seq: ++this.seq, turn: this.turn, phase: this.phase, side, tone, text, ...(setup ? { setup: true as const } : {}),
+        ...(fx ? { fx } : {}) };
       this.events.push(e); out.push(e);
       if (this.events.length > 800) this.events.splice(0, this.events.length - 800);
     };
@@ -62,6 +71,7 @@ export class BattleFeed {
     const key = mon ? `${mon.side}:${mon.name}` : '';
     const stage = () => { let s = this.stages.get(key); if (!s) this.stages.set(key, s = {}); return s; };
     const setHP = (condition: string | undefined) => { const now = percent(condition); const was = this.hp.get(key); if (now !== null) this.hp.set(key, now); return { now, was }; };
+    const statusOf = (condition: string | undefined) => { const st = (condition ?? '').trim().split(' ')[1]; return st && st !== 'fnt' ? st : null; };
     switch (message.type) {
       case 'player': if (/^p[12]$/.test(parts[0] ?? '') && parts[1]) this.names[parts[0] as 'p1' | 'p2'] = parts[1]; break;
       case 'turn': this.turn = Number(parts[0]) || this.turn; this.phase = 'action'; this.acted = false; break;
@@ -76,7 +86,8 @@ export class BattleFeed {
         const { now } = setHP(parts[2]);
         const species = (parts[1] ?? '').split(',')[0];
         const named = species && species !== mon.name ? `${mon.name} (${species})` : mon.name;
-        add(mon.side, 'switch', `${named} ${message.type === 'drag' ? 'was dragged out' : 'came in'}${now !== null ? ` at ${now}%` : ''}`);
+        add(mon.side, 'switch', `${named} ${message.type === 'drag' ? 'was dragged out' : 'came in'}${now !== null ? ` at ${now}%` : ''}`, false,
+          { species: species || mon.name, sprite: spriteId(species || mon.name), ...(now !== null ? { hp: now } : {}), status: statusOf(parts[2]) });
         if (this.turn > 0) this.acted = true;
         break;
       }
@@ -100,30 +111,31 @@ export class BattleFeed {
         if (now === null) break;
         const delta = was === undefined ? null : Math.round((now - was) * 10) / 10;
         const size = delta === null ? '' : ` ${delta < 0 ? '−' : '+'}${Math.abs(delta)}%`;
-        if (message.type === '-damage') add(mon.side, 'damage', `${mon.name}${from ? ` was hurt by ${from}` : ' took damage'}:${size} → ${now}%`);
-        else add(mon.side, 'heal', `${mon.name}${from ? ` restored HP with ${from}` : ' restored HP'}:${size} → ${now}%`);
+        if (message.type === '-damage') add(mon.side, 'damage', `${mon.name}${from ? ` was hurt by ${from}` : ' took damage'}:${size} → ${now}%`, false, { hp: now });
+        else add(mon.side, 'heal', `${mon.name}${from ? ` restored HP with ${from}` : ' restored HP'}:${size} → ${now}%`, false, { hp: now });
         break;
       }
-      case '-sethp': if (mon) { const { now } = setHP(parts[1]); if (now !== null) add(mon.side, 'info', `${mon.name}'s HP is now ${now}%${source(parts.slice(2)) ? ` (${source(parts.slice(2))})` : ''}`); } break;
+      case '-sethp': if (mon) { const { now } = setHP(parts[1]); if (now !== null) add(mon.side, 'info', `${mon.name}'s HP is now ${now}%${source(parts.slice(2)) ? ` (${source(parts.slice(2))})` : ''}`, false, { hp: now }); } break;
       case '-boost': case '-unboost': {
         if (!mon || !parts[1]) break;
         const n = Number(parts[2] ?? 1), up = message.type === '-boost', s = stage();
         s[parts[1]] = Math.max(-6, Math.min(6, (s[parts[1]] ?? 0) + (up ? n : -n)));
         const from = source(parts.slice(3));
         add(mon.side, up ? 'boost' : 'drop', n === 0 ? `${mon.name}'s ${STAT[parts[1]] ?? parts[1]} won't go any ${up ? 'higher' : 'lower'}`
-          : `${mon.name}'s ${STAT[parts[1]] ?? parts[1]} ${words(n, up)}${from ? ` (${from})` : ''}: now ${signed(s[parts[1]]!)}`);
+          : `${mon.name}'s ${STAT[parts[1]] ?? parts[1]} ${words(n, up)}${from ? ` (${from})` : ''}: now ${signed(s[parts[1]]!)}`, false,
+          { stat: parts[1], stage: s[parts[1]]! });
         break;
       }
-      case '-setboost': if (mon && parts[1]) { stage()[parts[1]] = Number(parts[2]); add(mon.side, 'boost', `${mon.name}'s ${STAT[parts[1]] ?? parts[1]} is now ${signed(Number(parts[2]))}${source(parts.slice(3)) ? ` (${source(parts.slice(3))})` : ''}`); } break;
-      case '-clearboost': if (mon) { this.stages.delete(key); add(mon.side, 'info', `${mon.name}'s stat changes were removed`); } break;
+      case '-setboost': if (mon && parts[1]) { stage()[parts[1]] = Number(parts[2]); add(mon.side, 'boost', `${mon.name}'s ${STAT[parts[1]] ?? parts[1]} is now ${signed(Number(parts[2]))}${source(parts.slice(3)) ? ` (${source(parts.slice(3))})` : ''}`, false, { stat: parts[1], stage: Number(parts[2]) }); } break;
+      case '-clearboost': if (mon) { this.stages.delete(key); add(mon.side, 'info', `${mon.name}'s stat changes were removed`, false, { clearBoosts: true }); } break;
       case '-clearallboost': this.stages.clear(); add(null, 'field', 'All stat changes were removed'); break;
       case '-clearnegativeboost': if (mon) { const s = stage(); for (const k of Object.keys(s)) if (s[k]! < 0) delete s[k]; add(mon.side, 'info', `${mon.name}'s lowered stats were restored`); } break;
       case '-clearpositiveboost': if (mon) { const s = stage(); for (const k of Object.keys(s)) if (s[k]! > 0) delete s[k]; add(mon.side, 'info', `${mon.name}'s raised stats were removed`); } break;
       case '-invertboost': if (mon) { const s = stage(); for (const k of Object.keys(s)) s[k] = -s[k]!; add(mon.side, 'info', `${mon.name}'s stat changes were inverted`); } break;
-      case '-status': if (mon) add(mon.side, 'status', `${mon.name} ${STATUS[parts[1] ?? ''] ?? `got ${parts[1]}`}${source(parts.slice(2)) ? ` (${source(parts.slice(2))})` : ''}`); break;
-      case '-curestatus': if (mon) add(mon.side, 'heal', `${mon.name} ${parts[1] === 'slp' ? 'woke up' : parts[1] === 'frz' ? 'thawed out' : 'was cured of its status'}`); break;
-      case 'faint': if (mon) { this.faints[mon.side]++; this.hp.set(key, 0); add(mon.side, 'faint', `${mon.name} fainted`); } break;
-      case '-terastallize': if (mon) add(mon.side, 'tera', `${mon.name} Terastallized into the ${parts[1]} type`); break;
+      case '-status': if (mon) add(mon.side, 'status', `${mon.name} ${STATUS[parts[1] ?? ''] ?? `got ${parts[1]}`}${source(parts.slice(2)) ? ` (${source(parts.slice(2))})` : ''}`, false, { status: parts[1] ?? null }); break;
+      case '-curestatus': if (mon) add(mon.side, 'heal', `${mon.name} ${parts[1] === 'slp' ? 'woke up' : parts[1] === 'frz' ? 'thawed out' : 'was cured of its status'}`, false, { status: null }); break;
+      case 'faint': if (mon) { this.faints[mon.side]++; this.hp.set(key, 0); add(mon.side, 'faint', `${mon.name} fainted`, false, { hp: 0, faint: true }); } break;
+      case '-terastallize': if (mon) add(mon.side, 'tera', `${mon.name} Terastallized into the ${parts[1]} type`, false, { tera: parts[1] ?? '' }); break;
       case '-weather': {
         const w = parts[0] ?? '';
         if (parts.includes('[upkeep]')) break;

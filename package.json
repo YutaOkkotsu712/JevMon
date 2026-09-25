@@ -16,7 +16,8 @@
     "smoke:jev": "npm run build && node dist/src/jev-smoke.js",
     "build:engine": "cargo build --release --features gen9,terastallization --bin poke-engine --manifest-path vendor/poke-engine/Cargo.toml",
     "preflight": "npm run build && node --env-file-if-exists=.env scripts/preflight.mjs",
-    "bench": "npm run build && node scripts/selfplay.mjs"
+    "bench": "npm run build && node scripts/selfplay.mjs",
+    "view": "npm run build && node --env-file-if-exists=.env scripts/view.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

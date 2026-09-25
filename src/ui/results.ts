@@ -15,6 +15,12 @@ export interface SessionResult {
   knockouts: { dealt: number; taken: number };
   rating: { before: number; after: number } | null;
   finishedAt?: string;
+  /** The opponent's rating before the battle, from the ladder's line, for performance ratings. */
+  opponentRating?: number;
+  /** The build that played it, from its decisions' instructions version. */
+  version?: string;
+  /** The log file it was read from, which a replay is built from. */
+  file?: string;
 }
 
 /** Read the result from the same public lines used by the live feed. */
@@ -27,8 +33,10 @@ export function resultFromFeed(room: string, feed: BattleFeed, username?: string
   const them = us === 'p1' ? 'p2' : 'p1';
   const ours = r.names[us];
   const rating = Object.entries(r.ratings).find(([name]) => id(name) === id(ours))?.[1] ?? null;
+  const theirs = Object.entries(r.ratings).find(([name]) => id(name) === id(r.names[them] ?? ''))?.[1];
   return { room, opponent: r.names[them], outcome: r.tie ? 'tie' : id(r.winner) === id(ours) ? 'win' : 'loss',
-    turns: r.turns, knockouts: { dealt: r.faints[them], taken: r.faints[us] }, rating };
+    turns: r.turns, knockouts: { dealt: r.faints[them], taken: r.faints[us] }, rating,
+    ...(theirs ? { opponentRating: theirs.before } : {}) };
 }
 
 interface LogEntry { size: number; mtimeMs: number; result: SessionResult | null }
@@ -50,7 +58,8 @@ export class ResultLogIndex {
         const info = await stat(file.path);
         const old = this.files.get(file.name);
         if (old?.size === info.size && old.mtimeMs === info.mtimeMs) return;
-        const result = await this.read(file.path, file.room);
+        const read = await this.read(file.path, file.room);
+        const result = read ? { ...read, file: file.name } : null;
         this.files.set(file.name, { size: info.size, mtimeMs: info.mtimeMs, result });
       } catch { /* A log being removed or written must not interrupt the live view. */ }
     }));
@@ -66,9 +75,10 @@ export class ResultLogIndex {
 
   private async read(path: string, room: string): Promise<SessionResult | null> {
     const feed = new BattleFeed();
-    let finishedAt: string | undefined;
+    let finishedAt: string | undefined, version: string | undefined;
     const lines = createInterface({ input: createReadStream(path), crlfDelay: Infinity });
     for await (const line of lines) {
+      if (!version) version = /"instructionsVersion":"([^"]{1,80})"/.exec(line)?.[1];
       if (!line.includes('"event":"line"')) continue;
       try {
         const entry = JSON.parse(line) as { event?: string; line?: string; time?: string };
@@ -82,6 +92,6 @@ export class ResultLogIndex {
       } catch { /* A partial trailing line may be in the middle of a write. */ }
     }
     const result = resultFromFeed(room, feed, this.username);
-    return result && finishedAt ? { ...result, finishedAt } : result;
+    return result ? { ...result, ...(finishedAt ? { finishedAt } : {}), ...(version ? { version } : {}) } : null;
   }
 }

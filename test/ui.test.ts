@@ -252,3 +252,58 @@ test('the live view loads past results and a late rating cannot replace the curr
   assert.equal(state.results.length, 1, 'replayed lines cannot duplicate a recorded battle');
   assert.equal(state.results[0]!.rating!.after, 1071);
 });
+
+test('feed events carry their effects as data, for a replay to move the arena', () => {
+  const feed = new BattleFeed();
+  for (const m of lines(MATCH)) feed.handle(m);
+  const fx = (tone: string, text: RegExp) => feed.events.find(e => e.tone === tone && text.test(e.text))?.fx;
+  assert.deepEqual(fx('switch', /Darkrai came in/), { species: 'Darkrai', sprite: 'darkrai', hp: 100, status: null });
+  assert.deepEqual(fx('boost', /Darkrai/), { stat: 'spa', stage: 2 });
+  assert.deepEqual(fx('damage', /Darkrai took damage/), { hp: 55 });
+  assert.deepEqual(fx('faint', /Reshiram/), { hp: 0, faint: true });
+});
+
+test('a decision view puts the search beside Jev and says who decided', () => {
+  const { b, record } = fixture();
+  const searched = { ...record,
+    search: { mode: 'blend', values: { 'move-1': { visitShare: 0.1, meanScore: 0.4 }, 'move-2': { visitShare: 0.2, meanScore: 0.5 }, 'switch-2': { visitShare: 0.7, meanScore: 0.6 } },
+      worldsSearched: 16, msTotal: 800 },
+    blended: { 'move-1': 0.1, 'move-2': 0.32, 'switch-2': 0.58 }, decidedBy: 'blend',
+    nearTie: { searchBest: 'switch-2', chosen: 'move-2' } } as DecisionRecord;
+  const v = decisionView(searched, b.state, 'battle-gen9randombattle-test');
+  assert.deepEqual(v.ranked.map(a => a.id), ['switch-2', 'move-2', 'move-1'], 'ranked by the blend the choice was made on');
+  assert.deepEqual(v.ranked[0]!.search, { share: 0.7, score: 0.6 });
+  assert.equal(v.how.jevPick, 'Salt Cure');
+  assert.equal(v.how.searchPick, 'Switch to Banette, L93');
+  assert.equal(v.how.agreed, false);
+  assert.deepEqual(v.how.nearTie, { searchBest: 'Switch to Banette, L93', chosen: 'Salt Cure' });
+  assert.deepEqual(v.how.search, { worlds: 16, ms: 800 });
+});
+
+test('a recorded battle is listed and replayed from its log, and nothing else is served', async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'jev-replay-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const { b, record } = fixture();
+  const state = structuredClone(b.state); state.battleId = ROOM;
+  const at = (event: string, extra: object) => JSON.stringify({ time: '2026-09-25T10:00:00.000Z', event, ...extra }) + '\n';
+  const source = MATCH.replace('&apos;s rating', "'s rating").split('\n');
+  writeFileSync(join(directory, `${ROOM}-871e3ecc-dfd9-447b-af05-a6d77150c8cb.jsonl`),
+    source.slice(0, 5).map(line => at('line', { line })).join('') + at('turn', { state }) +
+    at('decision', { state, decision: { ...record, providerResult: { ...record.providerResult, instructionsVersion: 'test-v1' } } }) +
+    source.slice(5).map(line => at('line', { line })).join(''));
+  const server = new LiveServer({ port: 0, onStatus: () => {}, username: 'TheNameIsJev', logDirectory: directory });
+  server.start();
+  t.after(() => server.stop());
+  let base = '';
+  for (let i = 0; i < 200 && !base; i++) { if (server.boundPort) base = `http://127.0.0.1:${server.boundPort}`; else await new Promise(r => setTimeout(r, 20)); }
+  const battles = await (await fetch(`${base}/battles`)).json() as SessionResult[];
+  assert.equal(battles.length, 1);
+  assert.equal(battles[0]!.version, 'test-v1');
+  assert.equal(battles[0]!.outcome, 'loss');
+  const replay = await (await fetch(`${base}/replay/${ROOM}`)).json() as { steps: { type: string }[]; result: SessionResult | null; version: string };
+  assert.ok(replay.steps.some(s => s.type === 'arena') && replay.steps.some(s => s.type === 'decision') && replay.steps.some(s => s.type === 'event'));
+  assert.equal(replay.result?.outcome, 'loss');
+  assert.equal(replay.version, 'test-v1');
+  assert.equal((await fetch(`${base}/replay/battle-gen9randombattle-404`)).status, 404, 'only a logged battle can be replayed');
+  assert.equal((await fetch(`${base}/replay/..%2F..%2Fetc`)).status, 404, 'a path is never read from the request');
+});

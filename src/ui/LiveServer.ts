@@ -7,6 +7,12 @@ import { BattleFeed, type FeedEvent } from './battleFeed.js';
 import { arenaView, type ArenaView } from './arena.js';
 import type { ProtocolMessage } from '../showdown/protocol.js';
 import { ResultLogIndex, resultFromFeed, type SessionResult } from './results.js';
+import { buildReplay } from './replay.js';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
+/** Bump when the replay's shape changes, so cached replays are rebuilt. */
+const REPLAY_FORMAT = 1;
 
 const LOOPBACK_NAMES = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
@@ -62,6 +68,20 @@ export class LiveServer {
         request.on('close', () => this.streams.delete(response));
         return;
       }
+      if (url === '/battles') {
+        void this.battles().then(list => {
+          response.writeHead(200, { ...headers, 'content-type': 'application/json' }); response.end(JSON.stringify(list));
+        }).catch(() => response.writeHead(500, headers).end());
+        return;
+      }
+      const replayRoom = /^\/replay\/(battle-[a-z0-9-]{1,120})$/.exec(url ?? "")?.[1];
+      if (replayRoom) {
+        void this.replay(replayRoom).then(replay => {
+          if (!replay) { response.writeHead(404, headers).end(); return; }
+          response.writeHead(200, { ...headers, 'content-type': 'application/json' }); response.end(replay);
+        }).catch(() => response.writeHead(500, headers).end());
+        return;
+      }
       if (url === '/' || url === '/index.html') {
         response.writeHead(200, { ...headers, 'content-type': 'text/html; charset=utf-8' });
         response.end(PANEL_HTML);
@@ -83,6 +103,43 @@ export class LiveServer {
       for (const result of history) this.storeResult(result);
       this.push({ results: this.results });
     }).catch(() => this.options.onStatus('live view could not read past results'));
+  }
+  /** Every recorded battle with its log, newest last: the replay list and the performance view read this. */
+  private async battles(): Promise<SessionResult[]> {
+    if (!this.resultLog) return this.results;
+    const history = await this.resultLog.refresh();
+    for (const result of history) this.storeResult(result);
+    return this.results;
+  }
+  private readonly replays = new Map<string, { key: string; json: Promise<string> }>();
+  /**
+   * A recorded battle's replay, as JSON. Building one reruns the decision view on every logged decision, about ten
+   * seconds for a long battle, so each is kept in memory and in logs/replays, keyed to its log's size.
+   */
+  private async replay(room: string): Promise<string | null> {
+    const dir = this.options.logDirectory;
+    if (!dir) return null;
+    const found = (await this.battles()).find(r => r.room === room && r.file);
+    if (!found?.file) return null;
+    const path = join(dir, found.file);
+    const info = await stat(path);
+    const key = `${REPLAY_FORMAT}:${found.file}:${info.size}`;
+    const cached = this.replays.get(room);
+    if (cached?.key === key) return cached.json;
+    const cacheFile = join(dir, 'replays', `${room}.json`);
+    const json = (async () => {
+      try {
+        const disk = JSON.parse(await readFile(cacheFile, 'utf8')) as { key?: string; replay?: unknown };
+        if (disk.key === key && disk.replay) return JSON.stringify(disk.replay);
+      } catch { /* not cached yet */ }
+      const replay = await buildReplay(path, room);
+      await mkdir(join(dir, 'replays'), { recursive: true }).catch(() => undefined);
+      await writeFile(cacheFile, JSON.stringify({ key, replay })).catch(() => undefined);
+      return JSON.stringify(replay);
+    })();
+    this.replays.set(room, { key, json });
+    if (this.replays.size > 8) this.replays.delete(this.replays.keys().next().value!);
+    return json;
   }
   private push(extra: Record<string, unknown> = { decisions: this.decisions.slice(-1) }): void {
     const frame = `data: ${JSON.stringify({ live: this.live, ...extra })}\n\n`;

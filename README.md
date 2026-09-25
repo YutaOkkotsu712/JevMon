@@ -341,6 +341,20 @@ why. Start it as usual and open <http://127.0.0.1:8733>. It shows:
   guard overruled, with the guard's reason. Click any entry in the decision list to
   go back to that turn.
 
+- **Jev beside the search.** Each option shows Jev's probability and the search's share of its visits as two bars,
+  with the blended score the move was chosen on. The decision says who settled it: Jev and the search agreeing, a
+  near tie handed to Jev, a Tera held back, or a guard.
+- **Performance.** Record, current and peak rating, streak and the last 20 results. A rating chart shades the build
+  that played each battle, and a per-build table gives each build's record and performance rating.
+- **Replays.** Any recorded battle, played back through the same view: the arena moves event by event, each decision
+  appears with its numbers, and it can be paused, stepped (← →), sped up or scrubbed by turn. **🎬 Present** (P) opens
+  a full-screen presentation for screen recording: the battlefield, a caption for each event, the bot's call with
+  Jev's and the search's bars, and a victory or defeat splash. `?replay=<room>` links straight to one. The first
+  opening builds the replay from its log (about ten seconds), and it is cached in `logs/replays/` after that.
+
+`npm run view` serves all of this from the logs without the bot, for when it is stopped or busy (a bench run, say):
+<http://127.0.0.1:8733>, or `-- --port 8736`.
+
 `LIVE_VIEW_PORT` sets the port and `LIVE_VIEW_PORT=0` turns it off. The server binds
 to the loopback interface and serves only `GET`. The play-by-play reads only public
 battle lines, never our private request or the room's chat, and from a ladder
