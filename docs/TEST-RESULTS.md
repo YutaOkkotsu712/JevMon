@@ -1836,3 +1836,47 @@ Tests: 408 pass.
     search's 0.0125. That affects how sharply the search's rewards separate; it is untested.
   - More data comes from the bench's position logs. The `guards` run (guards on against off, 200 games) is queued after
     `budget`, and records positions.
+
+## Certain knockouts passed up when the opponent moves first (2026-09-25)
+
+- **What the replays showed.** In the logs, Jev picked an attack that knocked the target out at every roll and the
+  blend played something else instead. Most of those turns were status moves: Gogoat's Milk Drink next to a Horn Leech
+  on a 19% Darkrai, Palossand's Shore Up next to Earth Power, and Calm Mind, Roost, Recover and Rest. The rest were
+  weaker attacks: Rapid Spin, U-turn, Flame Charge, Population Bomb. `freeKnockoutPassedUp` caught none of these.
+  - It stood aside whenever the opponent certainly moved first.
+  - It never looked at attacks, though its own comment named Rapid Spin over Ice Beam on a 20% Whiscash as a case.
+- **The argument.** Whatever the opponent does first falls into one of three cases.
+  - It leaves the knockout standing.
+  - It stops the knockout while a status move of ours would still have worked: Protect, a heal, Substitute, a screen,
+    raised defences, our attack lowered, a burn on a physical attacker, weather or terrain, an item taken, Destiny Bond.
+  - It knocks us out or stops us moving (sleep, paralysis, a flinch, Encore). That costs the other move just as much.
+  - So a move of ordinary priority is skipped even when their hit might knock us out first.
+  - A move that goes first (Prankster, Protect, priority attacks) is skipped only when nothing it would beat to the
+    punch knocks us out or is likely to stop us moving. Klefki's Prankster Spikes beside Dazzling Gleam in a speed tie
+    stays skipped.
+- **`beforeOurHit`.** Each move the opponent could use first is classified.
+  - A weakening is tested against how far the knockout overshoots. A burn does not save a 1% Pyroar from an Earthquake
+    that deals half its HP when halved, but it does save a 60% one.
+  - Status and stat changes are checked against our immunities: Fire types, Guts, Clear Body, Clear Amulet, our
+    Substitute.
+  - A screen that is already up is already in the numbers. Aurora Veil needs snow.
+- **Other changes to the guard.**
+  - Priority counts a possible Prankster in any sampled set. Grimmsnarl's Reflect had been read as priority 0.
+  - Protean and Libero typings count when the opponent moves first.
+  - It stands aside behind a possible Illusion.
+  - A knockout that charges first, certainly fails, or faints the user (Explosion, Mind Blown) is never insisted on.
+  - Weaker attacks are held to the knockout only when it costs nothing the attack would not: no recoil, no stat drop, no
+    recharge, no lock. Wood Hammer, Close Combat and Brave Bird knockouts are still left to judgement. So is a Speed
+    boost that outruns the opponent next turn (Rapid Spin, Flame Charge, Dragon Dance).
+- **Fallback.** A guard entry can now name the action that beats the one it skips (`prefer`), and the decision loop
+  takes that next. Without it, Toucannon's skipped Roost fell back to a switch to Pachirisu, not the Knock Off.
+- **On the logs (6,689 move decisions).** The guard now changes 35 turns in 28 games, 33 of them blend decisions. The
+  fallback is the knockout in 26; in the other 9 it is another attack that also knocks out.
+  - When the bot did play the knockout with the opponent moving first, it landed 53 times.
+  - It missed 7 times, all to our full paralysis, a flinch, Encore or a forfeit. Each of those would have cost a status
+    move as well.
+- **Anomaly checked.** Groudon's Precipice Blades on Jumpluff was not a Flying-immunity bug: Jumpluff had
+  Terastallized to Steel.
+- **Tests.** Three new ladder-review tests (Gogoat, Jumpluff's Strength Sap, the burn overshoot) and the updated
+  Maushold case, where Population Bomb is now skipped. There is also a decision-loop test for the preferred fallback,
+  which fails without it. 418 pass.

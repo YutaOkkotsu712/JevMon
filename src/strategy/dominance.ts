@@ -3,7 +3,7 @@ import { dex, id } from '../pokemon/data.js';
 import { damageRange } from './damage.js';
 import { inferOpponent } from './inference.js';
 import { buildPokemon, dedupeCandidates, hpInterval, scenario, supportedMove } from './calcCore.js';
-import { boostedStat, chargesThisTurn, healPercentNow, hitChancePercent, pokemonTypes, selfStageChanges, typeEffectiveness } from '../pokemon/mechanics.js';
+import { boostedStat, chargesThisTurn, fieldFactors, healPercentNow, hitChancePercent, pokemonTypes, selfStageChanges, typeEffectiveness } from '../pokemon/mechanics.js';
 import { effectiveSpeed, movePriority, speedSummary, turnOrder } from './speed.js';
 import { incomingThreats, outgoingBest } from './threat.js';
 import { hasSubstitute } from './substituteState.js';
@@ -1172,24 +1172,137 @@ export function futileUnawareSetup(input: DecisionInput) {
   return result;
 }
 
+/** Items a knockout can rest on, with what they multiply its damage by; Knock Off or Trick used first takes them away. */
+const damageItems: Record<string, number> = { choiceband: 1.5, choicespecs: 1.5, lifeorb: 1.3, expertbelt: 1.2, loadeddice: 2,
+  muscleband: 1.1, wiseglasses: 1.1, punchingglove: 1.1 };
+const itemTakers = new Set(['knockoff', 'trick', 'switcheroo', 'thief', 'covet', 'corrosivegas']);
+/** How much of their HP a heal they use first can restore, in percent, where the move's own data does not say. */
+const healPercent: Record<string, number> = { rest: 100, strengthsap: 100, painsplit: 100, shoreup: 67, morningsun: 67,
+  synthesis: 67, moonlight: 67, lifedew: 25, junglehealing: 25, lunarblessing: 25 };
+const terrainName: Record<string, string> = { electricterrain: 'Electric Terrain', grassyterrain: 'Grassy Terrain',
+  mistyterrain: 'Misty Terrain', psychicterrain: 'Psychic Terrain' };
+const stage = (n: number) => { const x = Math.max(-6, Math.min(6, n)); return x >= 0 ? (2 + x) / 2 : 2 / (2 - x); };
+type Move = ReturnType<typeof dex.moves.get>;
+type Boosts = Partial<Record<string, number>> | undefined | null;
+
 /**
- * A certain first-strike knockout passed up for a turn of setup or utility. Search chose Quiver Dance over Revelation
- * Dance on a 26% Heatran, Rapid Spin over Ice Beam on a 20% Whiscash, and Tidy Up over Bite on a 17% Uxie; each
- * knockout moved first at every roll, so the opponent never got the turn the other move handed it.
+ * What a move the opponent uses before our attack does to that attack's knockout. 'stops' when the knockout can fail
+ * while a status move of ours would still have worked: a Protect, a heal that lifts it out of range, a Substitute, a
+ * screen, raised defences or evasion, our attacking stat or accuracy lowered, a burn on a physical attacker, weather
+ * or terrain against the attack, an item the damage rests on taken away, Destiny Bond, or Disable on the attack.
+ * `{ stills }` when it may stop us moving whatever we chose (sleep, paralysis, freeze, confusion, a flinch, Encore),
+ * with the chance it does, which costs a status move just as much unless that move goes first. Each weakening is
+ * tested against how far the attack overshoots, so a burn does not save a 1% Pyroar from an Earthquake that deals
+ * half its HP when halved.
  *
- * Narrow: a move that cannot miss, and is not Sucker Punch, knocks the target out at every sampled roll and either moves
- * first or faces no opposing attack able to move first that knocks us out at every roll,
- * whatever Tera type the target could still choose; nothing is behind a Substitute. Only status moves are skipped —
- * setup, hazards, healing, utility. Other attacks and switches are left to judgement.
+ * `cases` are the knockout's worst rolls against each sampled set and Tera, as [damage, their HP] in percent.
+ */
+function beforeOurHit(s: BattleState, d: Move, ko: Move, me: PokemonState, foe: PokemonState, foeSide: SideId, cases: [number, number][]): 'stops' | { stills: number } | null {
+  const holds = (factor: number) => cases.every(([min, hp]) => min * factor >= hp);
+  const survivesHeal = (heal: number) => cases.every(([min, hp]) => min >= Math.min(100, hp + heal));
+  const ourAbility = me.abilitySuppressed ? '' : id(me.ability ?? ''), ourItem = id(me.item ?? '');
+  const physical = ko.category === 'Physical', attackStat = physical ? 'atk' : 'spa';
+  const defenceStat = physical || ['psyshock', 'psystrike', 'secretsword'].includes(ko.id) ? 'def' : 'spd';
+  const ignoresTheirBoosts = ourAbility === 'unaware' || !!ko.ignoreDefensive || !!ko.ignoreEvasion;
+  const shielded = hasSubstitute(me) && !d.flags.bypasssub && !d.flags.sound;
+  if (protectMoves.has(d.id) || d.id === 'destinybond') return 'stops';
+  if (d.id === 'substitute') return (foe.hpPercent ?? 100) > 25 ? 'stops' : null;
+  if (d.id === 'throatchop') return ko.flags.sound ? 'stops' : null;
+  if (d.id === 'disable' || d.id === 'torment') return id(me.lastMoveUsed ?? '') === ko.id ? 'stops' : null;
+  if (d.id === 'encore') return { stills: 1 };
+  if (d.id === 'wish' || d.id === 'healpulse' || d.id === 'floralhealing' || d.id === 'healingwish' || d.id === 'lunardance') return null;
+  const heal = d.drain ? 50 : d.flags.heal ? healPercent[d.id] ?? (d.heal ? (100 * d.heal[0]!) / d.heal[1]! : 50) : 0;
+  if (heal && !survivesHeal(heal)) return 'stops';
+  if (d.weather || d.terrain) {
+    const now = fieldFactors(ko.type, ko.id, s.field.weather, s.field.terrain);
+    const next = fieldFactors(ko.type, ko.id, d.weather ?? s.field.weather, d.terrain ? terrainName[d.terrain] ?? null : s.field.terrain);
+    const types = pokemonTypes(foe), w = id(d.weather ?? '');
+    const guard = (w === 'sandstorm' && !physical && types.includes('Rock')) || (['snowscape', 'snow', 'hail'].includes(w) && physical && types.includes('Ice')) ? 2 / 3 : 1;
+    const factor = (next.weatherIfUnsuppressed * next.terrainIfAttackerGrounded * next.terrainIfDefenderGrounded * guard) /
+      (now.weatherIfUnsuppressed * now.terrainIfAttackerGrounded * now.terrainIfDefenderGrounded);
+    if (d.terrain === 'psychicterrain' && (ko.priority ?? 0) > 0) return 'stops';
+    if (!holds(factor)) return 'stops';
+  }
+  // A screen halves the hit unless one covering it is already up (and so already in the numbers); Aurora Veil needs snow.
+  const up = s.sides[foeSide].conditions, covered = !!up['Aurora Veil'] || (physical ? !!up.Reflect : !!up['Light Screen']);
+  const screen = d.id === 'reflect' ? physical : d.id === 'lightscreen' ? !physical
+    : d.id === 'auroraveil' && ['snowscape', 'snow', 'hail'].includes(id(s.field.weather ?? ''));
+  if (screen && !covered && !['brickbreak', 'psychicfangs', 'ragingbull'].includes(ko.id) && !holds(0.5)) return 'stops';
+  if (itemTakers.has(d.id) && damageItems[ourItem] && ourAbility !== 'stickyhold' && !holds(1 / damageItems[ourItem]!)) return 'stops';
+  // Our stats lowered: Clear Body and its kin, Clear Amulet and a Substitute block it; Contrary, Defiant and Competitive turn it around.
+  const lowers = (b: Boosts) => {
+    if (!b || shielded || ['clearbody', 'whitesmoke', 'fullmetalbody', 'mirrorarmor', 'contrary'].includes(ourAbility) || ourItem === 'clearamulet') return false;
+    if ((b.accuracy ?? 0) < 0 && !['keeneye', 'mindseye', 'illuminate'].includes(ourAbility)) return true;
+    const drop = b[attackStat] ?? 0;
+    if (drop >= 0 || (attackStat === 'atk' && ourAbility === 'hypercutter')) return false;
+    if ((ourAbility === 'defiant' && attackStat === 'atk') || (ourAbility === 'competitive' && attackStat === 'spa')) return false;
+    const now = me.boosts[attackStat] ?? 0;
+    return !holds(stage(now + drop) / stage(now));
+  };
+  // Their defence or evasion raised, which Unaware and moves that ignore stat changes do not see.
+  const raises = (b: Boosts) => {
+    if (!b || ignoresTheirBoosts) return false;
+    if ((b.evasion ?? 0) > 0) return true;
+    const gain = b[defenceStat] ?? 0, now = foe.boosts[defenceStat] ?? 0;
+    return gain > 0 && !holds(stage(now) / stage(now + gain));
+  };
+  const statusOnUs = (x: string | undefined) => {
+    if (!x || me.status || shielded || ourAbility === 'comatose' || ourAbility === 'purifyingsalt') return null;
+    if (x === 'brn') return physical && ko.id !== 'facade' && ourAbility !== 'guts' && !pokemonTypes(me).includes('Fire') &&
+      !['waterveil', 'waterbubble', 'thermalexchange'].includes(ourAbility) && !holds(0.5) ? 'stops' : null;
+    // Paralysis stops a move a quarter of the time; sleep and freeze stop it outright.
+    return x === 'slp' || x === 'frz' ? { stills: 1 } : x === 'par' ? { stills: 0.25 } : null;
+  };
+  const stills = (v: string | undefined) => (v === 'flinch' ? 1 : v === 'confusion' && !shielded ? 1 / 3 : 0);
+  if (d.category === 'Status') {
+    const status = statusOnUs(d.status);
+    if (status) return status;
+    if (stills(d.volatileStatus)) return { stills: stills(d.volatileStatus) };
+    if (d.target === 'self' ? raises(d.boosts) : lowers(d.boosts) || raises(d.self?.boosts)) return 'stops';
+    if (d.id === 'curse' && !pokemonTypes(foe).includes('Ghost') && raises({ def: 1 })) return 'stops';
+    if (d.id === 'stockpile' && raises({ def: 1, spd: 1 })) return 'stops';
+    return null;
+  }
+  if (raises(d.self?.boosts)) return 'stops';
+  let still = 0;
+  for (const x of [d.secondary, ...(d.secondaries ?? [])]) {
+    if (!x) continue;
+    const chance = x.chance ?? 100;
+    // A burn as likely as Scald's counts; a certain stat change counts; any chance of not moving at all stills us.
+    if (x.status === 'brn' && chance >= 30 && statusOnUs('brn') === 'stops') return 'stops';
+    if ((chance >= 100 && lowers(x.boosts)) || (chance >= 50 && raises(x.self?.boosts))) return 'stops';
+    const status = statusOnUs(x.status);
+    still = Math.max(still, (chance / 100) * Math.max(status && status !== 'stops' ? status.stills : 0, stills(x.volatileStatus)));
+  }
+  return still ? { stills: still } : null;
+}
+
+/**
+ * A certain knockout passed up for a turn of setup or utility. Search chose Quiver Dance over Revelation Dance on a 26%
+ * Heatran, Rapid Spin over Ice Beam on a 20% Whiscash, and Tidy Up over Bite on a 17% Uxie; each knockout moved first
+ * at every roll, so the opponent never got the turn the other move handed it.
+ *
+ * Moving second is the same trade. Whatever the opponent does first either leaves the knockout standing, stops it while
+ * a status move would still have worked (beforeOurHit: 'stops', and then nothing is skipped), or knocks us out or stops
+ * us moving, which costs the status move just as much unless it goes first. So a status move of ordinary priority is
+ * skipped even when their hit might knock us out first; one that goes first (Prankster, Protect) is skipped only when
+ * nothing it would beat to the punch knocks us out or stops us — at every roll with the order uncertain, as with
+ * Klefki's Prankster Spikes beside a Dazzling Gleam on a 6% Baxcalibur, and at any roll once they certainly move first.
+ *
+ * Narrow: a move that cannot miss, and is not Sucker Punch, knocks the target out at every sampled roll, whatever Tera
+ * type it could still choose (and, moving second, whatever type Protean or Libero could make it); nothing is behind a
+ * Substitute. Only status moves are skipped — setup, hazards, healing, utility. Other attacks and switches are left to
+ * judgement.
  */
 export function freeKnockoutPassedUp(input: DecisionInput) {
-  const result = new Map<string, { by: string; reason: string }>();
+  const result = new Map<string, { by: string; reason: string; prefer?: string }>();
   const s = input.state;
   if (!s.mySide || s.requestKind !== 'move' || input.request?.forceSwitch?.[0]) return result;
   const side = s.mySide, foeSide: SideId = side === 'p1' ? 'p2' : 'p1';
   const ours = s.sides[side], theirs = s.sides[foeSide];
   const me = ours.team.find(p => p.id === ours.activeId), foe = theirs.team.find(p => p.id === theirs.activeId);
-  if (!me || !foe || me.fainted || foe.fainted || hasSubstitute(foe)) return result;
+  // Behind an Illusion the target may not be what we see, and nothing about it is certain.
+  if (!me || !foe || me.fainted || foe.fainted || hasSubstitute(foe) || theirs.identityUncertain) return result;
   const moveOf = (action: DecisionInput['legalActions'][number]) => {
     const slot = Number(action.command.split(' ')[1]) - 1;
     return dex.moves.get(input.request?.active?.[0]?.moves[slot]?.id ?? action.label.split(' + Tera')[0]!);
@@ -1198,53 +1311,108 @@ export function freeKnockoutPassedUp(input: DecisionInput) {
   const teraLeft = !foe.terastallized && !theirs.team.some(p => p.terastallized);
   const sets = dedupeCandidates(inferOpponent(foe).candidates);
   const teraTypes = teraLeft ? [...new Set(inferOpponent(foe).candidates.map(c => c.teraType).filter(Boolean))] : [];
-  const certain = (name: string) => {
-    if (damageRange(s, name)?.conditionalKO !== 'all-sampled-rolls') return false;
-    return teraTypes.every(t => sets.length > 0 && sets.every(c => {
+  // Protean and Libero change its type to that of the move it uses, once per entry; used first, that is the typing our
+  // attack meets.
+  const proteanTypes = !Object.keys(foe.volatiles).some(k => id(k) === 'typechange') &&
+    inferOpponent(foe).candidates.some(c => ['protean', 'libero'].includes(id(c.ability ?? '')))
+    ? [...new Set(plausibleMoves(foe).map(m => dex.moves.get(m.move).type))] : [];
+  /** The worst roll against each sampled set and type, as [damage, their HP] in percent; null unless every one knocks out. */
+  const cases = (name: string, first: boolean) => {
+    if (damageRange(s, name)?.conditionalKO !== 'all-sampled-rolls' || !sets.length) return null;
+    const out: [number, number][] = [];
+    for (const t of [undefined, ...new Set([...teraTypes, ...(first ? [] : proteanTypes)])]) for (const c of sets) {
       const r = scenario(s, me, foe, side, name, undefined, c, undefined, t);
-      if (!r) return false;
+      if (!r) return null;
       const hp = hpInterval(foe, r.defenderMaxHP)[1];
-      return !r.endures && r.min >= hp;
-    }));
+      if (r.endures || r.min < hp) return null;
+      out.push([(100 * r.min) / r.defenderMaxHP, (100 * hp) / r.defenderMaxHP]);
+    }
+    return out;
   };
-  // Moving first is one way to be sure the knockout lands; the other is that nothing able to move first knocks us out.
-  // Klefki, in a speed tie with a 6% Baxcalibur, chose Prankster Spikes over a Dazzling Gleam that knocked it out at
-  // every roll: Earthquake knocked Klefki out only on some rolls and Ice Shard not at all, so Gleam landed unless Klefki
-  // lost the tie and the roll together.
   const threat = incomingThreats(s, me, side, Infinity);
-  const lands = (name: string) => {
-    const order = turnOrder(s, me, name);
-    if (order?.order === 'ours-first') return 'first' as const;
-    if (order?.order !== 'uncertain' || order.ourPriority === null || !threat) return null;
-    const first = (move: string) => (movePriority(s, foe, move) ?? 99) >= order.ourPriority!;
-    const outright = threat.damagingMoves.some(m => m.conditionalKO === 'all-sampled-rolls' && first(m.move));
-    // A heal, a Protect or a sleep move that could go first leaves the knockout in doubt, as it did not for Klefki.
-    const stops = plausibleMoves(foe).some(m => {
-      const d = dex.moves.get(m.move);
-      return first(m.move) && (protectMoves.has(d.id) || d.status === 'slp' || (d.category === 'Status' && !!d.flags.heal));
-    });
-    return outright || stops ? null : 'survives' as const;
+  const foeMoves = plausibleMoves(foe).map(m => dex.moves.get(m.move)).filter(m => m.exists);
+  // The highest priority any sampled set gives the move, so a possible Prankster counts (null when any is unknown).
+  const theirPriority = (name: string) => {
+    const all = (inferOpponent(foe).candidates.length ? inferOpponent(foe).candidates : [undefined]).map(c => movePriority(s, foe, name, c));
+    return all.some(p => p === null) ? null : Math.max(...(all as number[]));
   };
-  const ko = input.legalActions.filter(a => a.kind === 'move' && !a.command.endsWith(' terastallize')).map(a => moveOf(a))
-    .find(m => m.exists && m.category !== 'Status' && m.id !== 'suckerpunch' && m.id !== 'thunderclap' &&
-      hitChancePercent(m.name, s.field.weather, me, foe) >= 100 && lands(m.name) && certain(m.name));
-  if (!ko) return result;
-  const how = lands(ko.name) === 'first' ? 'moves first and knocks' : 'knocks';
-  const unless = lands(ko.name) === 'first' ? '' : `, and lands unless ${foe.species} moves first and rolls high, since none of its sampled attacks knocks ${me.species} out at every roll`;
+  const tieOurs = speedSummary(s, me).ifEqualPriority === 'ours-first';
+  const judged = input.legalActions.filter(a => a.kind === 'move' && !a.command.endsWith(' terastallize')).map(a => ({ a, m: moveOf(a) }))
+    // A knockout that fails on the opponent's choice (Sucker Punch, Thunderclap, Upper Hand), that charges first, that
+    // certainly fails, or that takes us down with it (Explosion, Mind Blown) is no knockout to insist on.
+    .filter(({ m }) => m.exists && m.category !== 'Status' && !['suckerpunch', 'thunderclap', 'upperhand'].includes(m.id) &&
+      !m.selfdestruct && !m.mindBlownRecoil && !chargesThisTurn(m.name, s.field.weather, me) &&
+      !certainFailure(s, m.name, me, side, foe) && hitChancePercent(m.name, s.field.weather, me, foe) >= 100)
+    .map(({ a, m }) => {
+      const order = turnOrder(s, me, m.name);
+      if (!order || order.ourPriority === null) return null;
+      const first = order.order === 'ours-first';
+      const worst = cases(m.name, first);
+      if (!worst) return null;
+      // Their moves that could go before this attack, and what each does to it.
+      const before = first ? [] : foeMoves.filter(f => {
+        const p = theirPriority(f.name);
+        return p === null || p > order.ourPriority! || (p === order.ourPriority && !tieOurs);
+      }).map(f => ({ move: f, priority: theirPriority(f.name), effect: beforeOurHit(s, f, m, me, foe, foeSide, worst) }));
+      if (before.some(b => b.effect === 'stops')) return null;
+      return { action: a, move: m, order: order.order, ourPriority: order.ourPriority, before };
+    }).filter(x => !!x);
+  const ko = judged[0];
+  if (!ko || (ko.order !== 'ours-first' && !threat)) return result;
+  const second = ko.order === 'theirs-first';
+  // Their hits that could knock us out before a status move of ours that goes ahead of them. With the order uncertain,
+  // a hit that knocks us out only on some rolls is a risk Klefki's case accepted; certainly second, it is not.
+  const risky = new Set(second ? ['all-sampled-rolls', 'some-sampled-rolls'] : ['all-sampled-rolls']);
+  // Certainly second, their Tera can add up to half again to a hit, as Baxcalibur's Tera Ground Earthquake did to a
+  // full-HP Zekrom.
+  const knocksUsOut = (name: string) => threat?.damagingMoves.some(t => id(t.move) === id(name) &&
+    (risky.has(t.conditionalKO) || (second && teraLeft && t.percentOfMaxHP[1] * 1.5 >= (me.hpPercent ?? 100)))) ?? false;
+  /**
+   * Whether this status move, going ahead of some of their moves, would get its effect in where the attack would not:
+   * one of those moves knocks us out, or stops us moving a quarter of the time or more once it goes before the attack
+   * (half as often when that is a speed tie). Icicle Crash's 30% flinch in Klefki's tie was a risk worth taking.
+   */
+  const beatsThemToIt = (move: Move) => {
+    const p = movePriority(s, me, move.name);
+    if (p === null) return true;
+    if (p <= ko.ourPriority) return false;
+    return ko.before.some(b => {
+      if (b.priority !== null && b.priority >= p) return false;
+      const ahead = second || b.priority === null || b.priority > ko.ourPriority ? 1 : 0.5;
+      return knocksUsOut(b.move.name) || (!!b.effect && b.effect !== 'stops' && ahead * b.effect.stills >= 0.25);
+    });
+  };
+  const how = ko.order === 'ours-first' ? 'moves first and knocks' : 'knocks';
+  const unless = ko.order === 'ours-first' ? ''
+    : second ? `; ${foe.species} moves first, but nothing it could do first saves it, and a hit that knocks ${me.species} out or stops it moving would cost the other move just as much`
+    : `, and lands unless ${foe.species} moves first and knocks ${me.species} out or stops it moving, which would cost the other move just as much`;
   // Moving second, the knockout lands only after their action; a Speed boost that makes it land first next turn costs
   // them no extra action and keeps the boost for whatever comes in next. A Dragon Dance on a Pokémon that tanks the
   // faster opponent's hit is that play, and the guard used to take it away whenever the turn order was uncertain.
-  const outrunsAfter = (move: ReturnType<typeof moveOf>) => {
-    const gain = selfStageChanges(me, (move.boosts ?? {}) as Record<string, number>).spe ?? 0;
-    if (lands(ko.name) !== 'survives' || gain <= 0) return false;
+  const outrunsAfter = (move: Move) => {
+    const gain = move.category === 'Status' ? selfStageChanges(me, (move.boosts ?? {}) as Record<string, number>).spe ?? 0
+      : speedGain(move.name, me.abilitySuppressed ? '' : me.ability ?? '');
+    if (ko.order === 'ours-first' || gain <= 0) return false;
     const faster = { ...me, boosts: { ...me.boosts, spe: Math.min(6, (me.boosts.spe ?? 0) + gain) } };
-    return turnOrder(s, faster, ko.name)?.order === 'ours-first';
+    return turnOrder(s, faster, ko.move.name)?.order === 'ours-first';
+  };
+  // An attack that is not itself a certain knockout is the same trade with some damage attached: Rapid Spin over Ice Beam
+  // on a 20% Whiscash, Great Tusk's Rapid Spin beside an Earthquake that knocked out a 56% Iron Crown, Flame Charge
+  // beside a Flamethrower on a 37% Thundurus. It is held to it only when the knockout costs us nothing the other attack
+  // would not: no recoil, no stat drop, no recharge, no lock into the move.
+  const clean = !ko.move.recoil && !ko.move.hasCrashDamage && !Object.values(ko.move.self?.boosts ?? {}).some(v => (v ?? 0) < 0) &&
+    !['mustrecharge', 'lockedmove'].includes(ko.move.self?.volatileStatus ?? '');
+  const alsoKnocksOut = (action: DecisionInput['legalActions'][number], move: Move) => {
+    try { return damageRange(s, move.name, action.command.endsWith(' terastallize') ? me.teraType ?? undefined : undefined)?.conditionalKO === 'all-sampled-rolls'; }
+    catch { return true; }
   };
   for (const action of input.legalActions) {
     if (action.kind !== 'move') continue;
     const move = moveOf(action);
-    if (!move.exists || move.category !== 'Status' || outrunsAfter(move)) continue;
-    result.set(action.id, { by: 'knockout', reason: `${ko.name} ${how} ${foe.species} out at every sampled roll, whatever Tera it could choose${unless}, so ${move.name} gives up a knockout for a turn the opponent never had to get` });
+    if (!move.exists || move.id === ko.move.id || outrunsAfter(move) || beatsThemToIt(move)) continue;
+    if (move.category !== 'Status' && (!clean || alsoKnocksOut(action, move))) continue;
+    const instead = move.category === 'Status' ? move.name : `${move.name}, which does not knock it out at every roll,`;
+    result.set(action.id, { by: 'knockout', prefer: ko.action.id, reason: `${ko.move.name} ${how} ${foe.species} out at every sampled roll, whatever Tera it could choose${unless}, so ${instead} gives up a knockout for a turn the opponent never had to get` });
   }
   return result;
 }

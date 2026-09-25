@@ -130,7 +130,8 @@ test('a certain first-strike knockout is not passed up for setup or utility', ()
   b.feed('|switch|p2a: Mew|Mew, L80|100/100'); b.feed('|-terastallize|p2a: Mew|Fairy'); b.feed('|turn|3');
   b.feed('|switch|p2a: Foe|Uxie, L85|17/100'); b.feed('|turn|4');
   const input = decide(b), skipped = freeKnockoutPassedUp(input);
-  assert.deepEqual(labels(input, skipped), ['Encore', 'Tidy Up'], 'status moves only; Population Bomb is an attack and left to judgement');
+  assert.deepEqual(labels(input, skipped), ['Encore', 'Population Bomb', 'Tidy Up'],
+    'Population Bomb knocks Uxie out only on some rolls, and Bite costs nothing Population Bomb would not');
   assert.match((skipped.values().next().value as { reason: string }).reason, /Bite moves first and knocks Uxie out at every sampled roll, whatever Tera it could choose/);
   const healthy = battle(mouse, 'Uxie', 85);
   assert.equal(freeKnockoutPassedUp(decide(healthy)).size, 0, 'no certain knockout on a healthy Uxie');
@@ -671,4 +672,44 @@ test('a pivot into teammates that are knocked out on arrival is skipped when one
   };
   assert.deepEqual(run([24, 29, 7]), ['U-turn'], 'all three die to Icicle Crash on arrival; Mesprit would outspeed Glastrier after a free switch');
   assert.deepEqual(run([100, 100, 100]), [], 'healthy teammates survive the hit, so the pivot is a judgement call');
+});
+
+test('a certain knockout is not passed up for a heal or a boost when the opponent moves first but cannot stop it', () => {
+  // 2686983295: Gogoat drank Milk over a Horn Leech that knocked out a 19% Darkrai at every roll. Darkrai moves first,
+  // but its Hypnosis would stop Milk Drink as surely as Horn Leech, and at 19% it has no HP for a Substitute.
+  const roster = [ours('Gogoat', 88, ['Earthquake', 'Milk Drink', 'Horn Leech', 'Bulk Up'], 'Sap Sipper', 'Leftovers', 'Water')];
+  const run = (foePercent: number) => {
+    const b = battle(roster, 'Darkrai', 77);
+    const hp = Math.round(roster[0]!.maxHP * 0.54);
+    b.feed('|move|p2a: Foe|Dark Pulse|p1a: Gogoat'); b.feed(`|-damage|p1a: Gogoat|${hp}/${roster[0]!.maxHP}`);
+    b.feed(`|-damage|p2a: Foe|${foePercent}/100`); b.feed('|turn|2');
+    const input = decide(b, hp);
+    return labels(input, freeKnockoutPassedUp(input));
+  };
+  assert.deepEqual(run(19), ['Bulk Up', 'Milk Drink']);
+  assert.deepEqual(run(30), [], 'at 30% Darkrai can put up a Substitute before the hit, and Milk Drink would still have worked');
+});
+
+test('a heal the opponent can use first keeps a status move open', () => {
+  // 2687212923: Groudon's Heat Crash knocked out a 12% Jumpluff at every roll, but Jumpluff moves first and Strength Sap
+  // heals it out of range while Thunder Wave or Spikes would still have worked.
+  const roster = [ours('Groudon', 72, ['Precipice Blades', 'Spikes', 'Heat Crash', 'Thunder Wave'], 'Drought', 'Leftovers', 'Fire')];
+  const b = battle(roster, 'Jumpluff', 87);
+  for (const m of ['Acrobatics', 'Substitute', 'Strength Sap']) b.feed(`|move|p2a: Foe|${m}|p1a: Groudon`);
+  b.feed('|-damage|p2a: Foe|12/100'); b.feed('|turn|2');
+  const input = decide(b);
+  assert.deepEqual(labels(input, freeKnockoutPassedUp(input)), []);
+});
+
+test('a burn used first stops a physical knockout only when the halved hit falls short', () => {
+  const roster = [ours('Garchomp', 74, ['Earthquake', 'Swords Dance', 'Stone Edge', 'Scale Shot'], 'Rough Skin', 'Loaded Dice', 'Steel')];
+  const run = (foePercent: number) => {
+    const b = battle(roster, 'Pyroar', 88);
+    for (const m of ['Will-O-Wisp', 'Hyper Voice', 'Fire Blast', 'Work Up']) b.feed(`|move|p2a: Foe|${m}|p1a: Garchomp`);
+    b.feed(`|-damage|p2a: Foe|${foePercent}/100`); b.feed('|turn|2');
+    const input = decide(b);
+    return labels(input, freeKnockoutPassedUp(input));
+  };
+  assert.deepEqual(run(1), ['Swords Dance'], 'burned, Earthquake still deals far more than 1%');
+  assert.deepEqual(run(60), [], 'burned, Earthquake may leave a 60% Pyroar standing while Swords Dance still works');
 });

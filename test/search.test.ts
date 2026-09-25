@@ -345,6 +345,29 @@ test('a guard that skips a Tera falls back to the same move without it, not to t
   assert.match(records[0]!.skippedDominatedMove!.reason, /Tera Water/);
 });
 
+test('a guard that names what beats the skipped move falls back to it, not to the next-ranked switch', async () => {
+  // 2686662572: a Roost skipped for a certain Knock Off fell back to the blend's next choice, a switch to Pachirisu.
+  const team = [ourRow('Gogoat', 88, ['Earthquake', 'Milk Drink', 'Horn Leech', 'Bulk Up'], 'Sap Sipper', 'Leftovers', 'Water'),
+    ourRow('Snorlax', 84, ['Body Slam'], 'Thick Fat', 'Leftovers', 'Normal')];
+  const b = battleFor(team, 'Darkrai', 77);
+  const hp = Math.round(team[0]!.maxHP * 0.54);
+  b.feed('|move|p2a: Foe|Dark Pulse|p1a: Gogoat'); b.feed(`|-damage|p1a: Gogoat|${hp}/${team[0]!.maxHP}`);
+  b.feed('|-damage|p2a: Foe|19/100'); b.feed('|turn|2');
+  const records: DecisionRecord[] = [];
+  const provider: DecisionProvider = { async chooseAction(input): Promise<DecisionResult> {
+    const id = (label: string) => input.legalActions.find(a => a.label === label)!.id;
+    return { chosenAction: id('Milk Drink'), provider: 'jev', confidence: 0.5, probabilities: Object.fromEntries(input.legalActions.map(a =>
+      [a.id, a.label === 'Milk Drink' ? 0.6 : a.label.startsWith('Switch to Snorlax') ? 0.25 : 0.03])) };
+  } };
+  const loop = new DecisionLoop({ room, username: 'Test Bot', dryRun: true, provider, send: () => true, state: () => b.state,
+    onStatus: () => {}, onDecision: r => records.push(r) });
+  loop.request(JSON.stringify(b.payload(3, hp, 0)));
+  await new Promise(resolve => setTimeout(resolve, 30));
+  loop.stop();
+  assert.equal(records[0]!.selectedAction.label, 'Earthquake');
+  assert.match(records[0]!.skippedDominatedMove!.reason, /Earthquake knocks Darkrai out at every sampled roll/);
+});
+
 import { parseMatrix, solveMatrixGame, searchTimeoutMs } from '../src/search/search.js';
 
 test('the endgame solver reads the engine matrix and solves the root as a simultaneous game', () => {

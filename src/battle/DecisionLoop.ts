@@ -246,9 +246,9 @@ export class DecisionLoop {
       const state = this.options.state();
       // A guard that throws loses its own opinion, never the turn: an exception here used to end the whole decision
       // with no choice sent, which the battle timer turns into a loss.
-      const dominance = new Map<string, { by: string; reason: string }>();
+      const dominance = new Map<string, { by: string; reason: string; prefer?: string }>();
       for (const guard of this.options.guards === false ? [] : [dominatedMoves, ...GUARDS]) {
-        let found: Map<string, { by: string; reason: string }>;
+        let found: Map<string, { by: string; reason: string; prefer?: string }>;
         try { found = guard({ state, legalActions: actions, request }); }
         catch { this.options.onStatus(`strategy guard ${guard.name} failed; ignoring it for this decision`); continue; }
         for (const [id, entry] of found) if (!dominance.has(id)) dominance.set(id, entry);
@@ -275,9 +275,13 @@ export class DecisionLoop {
         // A guard that skips a Tera objects to the Tera, so the same move without it comes first. Ranked by the blend
         // instead, the fallback was whatever Jev's leftover votes favoured: Flamigo's skipped Tera Close Combat became
         // U-turn three turns running, each one feeding a teammate to a Chilling Neigh Glastrier (2687217753).
+        // A guard that names what beats the skipped move comes next: a certain knockout skipped for a Roost fell back to
+        // the blend's next choice, a switch to Pachirisu, where the guard's own reason was the Knock Off (2686662572).
         const twin = action.id.endsWith('-terastallize') ? actions.find(a => a.id === action!.id.slice(0, -'-terastallize'.length)) : undefined;
+        const prefer = dominance.get(action.id)?.prefer;
+        const first = (a: BattleAction) => (a.id === twin?.id ? 2 : a.id === prefer ? 1 : 0);
         const ranked = actions.filter(a => a.id !== action!.id && !cyclic(a))
-          .sort((a, b) => (b.id === twin?.id ? 1 : 0) - (a.id === twin?.id ? 1 : 0) || (ranking![b.id] ?? 0) - (ranking![a.id] ?? 0));
+          .sort((a, b) => first(b) - first(a) || (ranking![b.id] ?? 0) - (ranking![a.id] ?? 0));
         if (ranked[0]) {
           const record = { from: action.id, to: ranked[0].id, reason: reasons.get(action.id)! };
           if (dominance.has(action.id)) skippedMove = record; else skipped = record;
