@@ -2232,3 +2232,18 @@ Tests: 408 pass.
   setup against an attack at under 0.03, where the search's +30 a stage is the likelier error. It cannot be benched
   offline, since the bench plays without Jev.
 - 427 pass. `INSTRUCTIONS_VERSION` is `2026-09-25-audit-v7`, to separate these games.
+
+## Reverted: setup against an attack goes back to the visits rule (2026-09-25, audit-v8)
+
+- Live for four ladder games (3–1), audit-v7 changed three decisions. One was Coil → Supercell Slam, in a win. The
+  other two were Florges' Calm Mind → Moonblast against a Calm Mind Latias, in the loss to My Life is Dance
+  (2687703481). On turn 17 the plain blend had Calm Mind (0.35 against Moonblast's 0.275; search 0.422 on 44% of
+  visits against 0.404 on 17%). The exception gave the turn to Jev, who put 0.52 on Moonblast and 0.14 on Calm Mind.
+  Latias kept boosting, and by turn 19 Moonblast did at most 12.9% into its 50% heals.
+- Three punished Dragon Dances against one blocked Calm Mind is too few either way. Jev's lean against setup is the
+  documented bias the visits rule was written to keep out of play, so the rule stands without the exception.
+- Jev's 30% weight still decides some turns against a clearly better search choice. Over the last 40 games it
+  outvoted the search's top pick, leading by 0.03 or more, in 13 of 1,090 decisions: 7 switch against switch,
+  3 status over an attack, and 1 setup over an attack (Calm Mind 0.684 against Moonblast 0.645, turn 23 of the same
+  game).
+- `INSTRUCTIONS_VERSION` is `2026-09-25-audit-v8`.

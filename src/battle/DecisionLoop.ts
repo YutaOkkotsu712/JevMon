@@ -5,7 +5,6 @@ import { cyclicSwitch } from '../strategy/loopGuard.js';
 import { fasterPivot } from '../strategy/pivot.js';
 import type { DecisionProvider, DecisionResult, ProviderMetrics, SearchValue } from '../decisions/DecisionProvider.js';
 import { RandomDecisionProvider } from '../decisions/RandomDecisionProvider.js';
-import { dex } from '../pokemon/data.js';
 
 export interface DecisionRecord {
   rqid: number;
@@ -110,24 +109,7 @@ export function blendChoice(actions: BattleAction[], prior: Record<string, numbe
     if (!plain || !actions.some(a => a.id === plain) || values[plain]?.meanScore == null || !values[pick.chosen]) return pick;
     return share(plain) >= share(pick.chosen) ? { ...pick, chosen: plain, teraHeldBack: { from: pick.chosen, to: plain } } : pick;
   };
-  // Setup against an attack is the exception to the visits rule: the search values every boost stage in full, and in
-  // one session it turned three near ties into Dragon Dances that the opponent punished (Lapras into a switch-out at
-  // 11%, Feraligatr into Glare, Crawdaunt into Close Combat), each where Jev wanted the attack. When the search's choice
-  // raises our own stats, Jev's is an attack, and the scores are within the margin, the provider settles it.
-  const moveOf = (actionId: string) => {
-    const a = actions.find(x => x.id === actionId);
-    return a?.kind === 'move' ? dex.moves.get(a.label.split(' + Tera')[0]!) : null;
-  };
-  const setupMoves = new Set(['bellydrum', 'noretreat', 'clangoroussoul', 'filletaway', 'geomancy', 'tidyup']);
-  const isSetup = (actionId: string) => {
-    const m = moveOf(actionId);
-    return !!m?.exists && m.category === 'Status' && (setupMoves.has(m.id) ||
-      (m.target === 'self' && Object.values(m.boosts ?? {}).some(v => (v ?? 0) > 0)));
-  };
-  const isAttack = (actionId: string) => { const m = moveOf(actionId); return !!m?.exists && m.category !== 'Status'; };
-  const setupOverAttack = (a: string, b: string) => isSetup(a) && isAttack(b) && score(a) != null && score(b) != null &&
-    score(a)! - score(b)! < margin;
-  if (prior && theirs && best.id !== theirs && (tied(best.id, theirs) || setupOverAttack(best.id, theirs))) {
+  if (prior && theirs && best.id !== theirs && tied(best.id, theirs)) {
     return { blended, pick: holdTera({ chosen: theirs, decidedBy: 'provider' as const, nearTie: undefined }) };
   }
   const decidedBy = prior ? 'blend' as const : 'search' as const;
