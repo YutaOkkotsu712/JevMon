@@ -588,6 +588,17 @@ test('a likely knockout is not blocked for a switch that costs more than the Pok
   assert.deepEqual(skippedAt(29), ['Acrobatics', 'Sleep Powder'], 'at 29% it almost never does, and the switch is the better price');
 });
 
+test('a rampage move reports the chance an unrevealed Pokémon takes nothing from it', () => {
+  // 2687511902: Kingdra's Outrage knocked Hydreigon out, and an unrevealed Mimikyu came in immune and set up twice.
+  const b = battle([ours('Kingdra', 84, ['Outrage', 'Wave Crash', 'Iron Head', 'Dragon Dance'], 'Sniper', 'Life Orb', 'Steel')], 'Hydreigon', 80);
+  const rampage = effectViability(b.state, 'Outrage', b.me(), 'p1', b.foe())!.possible;
+  const unseen = rampage.find(p => /5 of their Pokémon are unrevealed and \d+% of the Random Battle pool takes nothing from Outrage/.test(p.reason))!;
+  assert.ok(unseen.probability! > 0.1 && unseen.probability! < 0.6, `about one Fairy type in the pool of every sixteen, five times over: ${unseen.probability}`);
+  assert.equal(effectViability(b.state, 'Wave Crash', b.me(), 'p1', b.foe()), null, 'a move that does not lock carries no such risk');
+  b.state.sides.p2.teamSize = 1;
+  assert.ok(!(effectViability(b.state, 'Outrage', b.me(), 'p1', b.foe())?.possible ?? []).some(p => /unrevealed/.test(p.reason)), 'nobody left unseen');
+});
+
 test('without a switch-in that wins outright, the gamble stays a judgement call', () => {
   const roster = [ours('Jumpluff', 87, ['Acrobatics', 'Strength Sap', 'U-turn', 'Sleep Powder'], 'Infiltrator', '', 'Steel'),
     ours('Cinderace', 82, ['Pyro Ball', 'U-turn'], 'Libero', 'Choice Band', 'Fire')];

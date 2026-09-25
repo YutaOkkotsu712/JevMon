@@ -1983,3 +1983,18 @@ Tests: 408 pass.
   - Depth-2 matrices on 245 logged positions match the previous binary except in the positions with a Rage Fist or Anger
     Shell user.
   - Deployed; the previous binary is kept as `poke-engine.before-ragefist`.
+
+## Lock-in moves and unrevealed opponents (2026-09-25, audit-v6)
+
+- In 2687511902, Kingdra's +3 Outrage knocked Hydreigon out. An unrevealed Mimikyu then came in immune, used Swords Dance
+  twice while Kingdra stayed locked in, and swept.
+- The payload already named revealed teammates that take nothing from a rampage move. It now also reports the Pokémon
+  not yet seen, under `wouldAccomplishNothing.possible` for the move:
+  - how many are unrevealed;
+  - the share of the Random Battle pool that takes nothing from the move, by type or by an absorbing ability (weighted
+    by set), with species already seen left out;
+  - the chance that at least one of them does.
+- For Outrage the share is 6% (the Fairy types). With five unseen, that is a 29% chance.
+- `inference.unrevealedTypePool` carries the pool's types and abilities. The glossary line for `possible` now covers
+  unrevealed Pokémon. `INSTRUCTIONS_VERSION` is `2026-09-25-audit-v6`.
+- One new test; 421 pass.

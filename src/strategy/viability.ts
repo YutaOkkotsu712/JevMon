@@ -1,13 +1,13 @@
 import type { BattleState, PokemonState, SideId } from '../battle/BattleState.js';
-import { dex, id } from '../pokemon/data.js';
+import { canonicalSpecies, dex, id } from '../pokemon/data.js';
 import { grounded, pokemonTypes, typeEffectiveness, selfStageChanges } from '../pokemon/mechanics.js';
 import { movePriority } from './speed.js';
 import { sampled } from './sampled.js';
 import { phazeStoppers } from './phaze.js';
 import { boostersFor, statusBoosters } from './statusGifts.js';
-import { statusAbsorbers } from './abilities.js';
+import { absorbedBy, statusAbsorbers } from './abilities.js';
 import { plausibleMoves } from './setPriors.js';
-import { inferOpponent } from './inference.js';
+import { inferOpponent, unrevealedTypePool } from './inference.js';
 import { scenario } from './calcCore.js';
 import { protectMoves } from '../battle/BattleTracker.js';
 import { wakeChance } from './risk.js';
@@ -158,6 +158,18 @@ export function effectViability(s: BattleState, moveName: string, user: PokemonS
       const sets = inferOpponent(p).candidates;
       const blanked = sets.length > 0 && sets.every(c => { const r = scenario(s, user, p, userSide, move.name, undefined, c); return !!r && r.max === 0; });
       if (blanked) possible.push({ reason: `${p.species} takes nothing from ${move.name} and can switch in for free while we stay locked into it`, probability: 1 });
+    }
+    // The ones not yet seen are a share of the Random Battle pool. Kingdra's +3 Outrage knocked Hydreigon out, and an
+    // unrevealed Mimikyu came in immune and set up twice while the lock ran out (2687511902).
+    const unseen = Math.max(0, (theirSide.teamSize ?? 6) - theirSide.team.length);
+    if (unseen) {
+      const seen = new Set(theirSide.team.map(p => id(canonicalSpecies(p.species))));
+      const pool = unrevealedTypePool().filter(x => !seen.has(id(x.species)));
+      const blank = pool.map(x => typeEffectiveness(move.type, x.types) === 0 ? 1
+        : x.abilities.reduce((n, a) => n + (absorbedBy(a.ability, move.name) ? a.probability : 0), 0));
+      const share = pool.length ? blank.reduce((a, b) => a + b, 0) / pool.length : 0;
+      const chance = 1 - (1 - share) ** unseen;
+      if (chance >= 0.01) possible.push({ reason: `${unseen} of their Pokémon ${unseen === 1 ? 'is' : 'are'} unrevealed and ${Math.round(share * 100)}% of the Random Battle pool takes nothing from ${move.name}, so one may switch in for free while we stay locked into it`, probability: Math.round(chance * 100) / 100 });
     }
   }
   // Leech Seed misses a Grass type entirely, stacks on nothing, and cannot reach through a Substitute.

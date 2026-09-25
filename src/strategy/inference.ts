@@ -36,6 +36,20 @@ export function unrevealedSpeedPool() {
   return speedPool;
 }
 
+let typePool: { species: string; types: string[]; abilities: { ability: string; probability: number }[] }[] | null = null;
+/** Every Random Battle species with its types and its sets' abilities, weighted by how often each set is used. */
+export function unrevealedTypePool() {
+  if (typePool) return typePool;
+  typePool = Object.entries(jointSets).flatMap(([name, sets]) => {
+    const species = dex.species.get(name);
+    if (!species.exists || !poolData[name]?.level || !sets.length) return [];
+    const total = sets.reduce((n, c) => n + c.probability, 0) || 1;
+    return [{ species: species.name, types: [...species.types] as string[],
+      abilities: sets.map(c => ({ ability: c.ability ?? '', probability: c.probability / total })) }];
+  });
+  return typePool;
+}
+
 /**
  * The sets that explain the most of what a Pokémon has revealed, for when none explains all of it. inferOpponent fails
  * closed then, so the payload makes no claim, but the search still needs a Pokémon in the slot.
