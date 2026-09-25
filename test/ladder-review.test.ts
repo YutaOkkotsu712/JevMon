@@ -355,7 +355,8 @@ test('Wish counts as the half it heals, so attacking into a Wish and Protect loo
   assert.equal(outhealed(decide(b)).size, 0, 'one heal is not yet a stall');
   wish(4);
   const input = decide(b), skipped = outhealed(input);
-  assert.deepEqual(labels(input, skipped), ['Earth Power', 'Stealth Rock', 'Thunderbolt'], 'Volt Switch leaves as a switch would');
+  // Volt Switch leaves as a switch would, and Stealth Rock pays on every later switch-in whatever Scream Tail heals.
+  assert.deepEqual(labels(input, skipped), ['Earth Power', 'Thunderbolt']);
   assert.match((skipped.values().next().value as { reason: string }).reason, /Scream Tail has healed 2 times against Sandy Shocks, and each heal restores 50%/);
 });
 
@@ -765,4 +766,17 @@ test('a two-turn move charging in reach keeps the estimates; one out of reach do
   assert.equal(unsupportedReason(b.state, foe), null);
   b.feed('|turn|2'); b.feed('|move|p2a: Foe|Meteor Beam|p1a: Garchomp'); b.feed('|-prepare|p2a: Foe|Dig'); b.feed('|turn|3');
   assert.match(unsupportedReason(b.state, foe) ?? '', /dig/i, 'underground, it cannot be hit, which the calculator does not model');
+});
+
+test('outhealed leaves Rapid Spin and a Defog that clears our hazards alone', () => {
+  // 2687740108: Avalugg's Rapid Spin, the search's pick at 0.63, was skipped three times against Toxapex for Recover.
+  const roster = [ours('Avalugg', 89, ['Avalanche', 'Rapid Spin', 'Recover', 'Body Press'], 'Sturdy', 'Heavy-Duty Boots', 'Fighting'),
+    ours('Haxorus', 78, ['Dragon Dance', 'Earthquake', 'Close Combat', 'Scale Shot'], 'Mold Breaker', 'Loaded Dice', 'Fighting')];
+  const b = battle(roster, 'Toxapex', 88);
+  b.feed('|-sidestart|p1: Test Bot|move: Stealth Rock');
+  const recover = (turn: number) => { b.feed('|-damage|p2a: Foe|60/100'); b.feed('|move|p2a: Foe|Recover|p2a: Foe'); b.feed('|-heal|p2a: Foe|100/100'); b.feed(`|turn|${turn}`); };
+  recover(2); recover(3);
+  const input = decide(b), names = labels(input, outhealed(input));
+  assert.ok(names.includes('Avalanche'), `the attacks are still skipped: ${names.join(', ')}`);
+  assert.ok(!names.includes('Rapid Spin'), 'Rapid Spin is for the hazards');
 });

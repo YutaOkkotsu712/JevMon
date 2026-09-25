@@ -739,6 +739,8 @@ export function healingOverAKnockout(input: DecisionInput) {
 
 /** Moves that break a healing stall rather than feed it: a status that chips or cripples, anything that stops the heal. */
 const stallBreakers = new Set(['taunt', 'encore', 'healblock', 'psychicnoise', 'torment', 'disable']);
+/** Attacks used for what they do besides damage: hazard removal, forcing a switch, clearing boosts. */
+const notForTheDamage = new Set(['rapidspin', 'mortalspin', 'circlethrow', 'dragontail', 'clearsmog']);
 
 /**
  * Attacking into a healer that restores more than every hit takes. Gurdurr traded Knock Off and Drain Punch, 32% at
@@ -751,7 +753,8 @@ const stallBreakers = new Set(['taunt', 'encore', 'healblock', 'psychicnoise', '
  * more than the most our best attack does to them, none of our attacks is a certain knockout, and either some switch
  * survives its entry or we have a stall-breaker of our own to use instead. Wish counts as the half it restores a turn later: Scream Tail alternated Wish and Protect from 45% back to
  * full through seven of Sandy Shocks's Thunderbolts, each doing about a fifth. Attacks and idle moves are skipped; a
- * switch, a pivot, a status, Taunt, Encore, Heal Block and setup are left, since those are what break a stall like this.
+ * switch, a pivot, a status, Taunt, Encore, Heal Block, setup, our own heal, hazards, screens, hazard removal and
+ * phazing are left, since those are what break a stall like this or pay whatever it heals.
  */
 export function outhealed(input: DecisionInput) {
   const result = new Map<string, { by: string; reason: string }>();
@@ -796,14 +799,19 @@ export function outhealed(input: DecisionInput) {
   const best = Math.max(0, ...moves.map(m => m.range?.percentOfMaxHP[1] ?? 0));
   if (best >= heal) return result;
   const bestName = moves.find(m => (m.range?.percentOfMaxHP[1] ?? -1) === best)?.move.name ?? 'our best attack';
+  const ourHazards = Object.values(ours.hazards ?? {}).some(n => (n ?? 0) > 0);
   for (const { action, move } of moves) {
     // Knock Off breaks it only while there is an item to take: after the first hit it is one more attack.
     const takesItem = move.id === 'knockoff' && foe.item !== '';
     if (!move.exists || move.status || stallBreakers.has(move.id) || takesItem || move.selfSwitch || (move.target === 'self' && (move.boosts || move.self?.boosts))) continue;
-    // Our own heal is not an attack being outhealed: whether it restores anything is healAtFullHP's to judge. Skipped
-    // here, with 'cannot outpace' as the reason, Florges's Synthesis (the search's pick on 53% of visits) became a switch
-    // to Ditto twice against a Calm Mind Latias (2687703481).
-    if (move.category === 'Status' && move.flags?.heal) continue;
+    // A move whose point is not its damage is not outhealed. Our own heal: skipped here, Florges's Synthesis became a
+    // switch to Ditto twice against a Calm Mind Latias (2687703481). Hazards and screens work whatever they heal, and
+    // clearing our hazards pays on every later switch. Rapid Spin and Mortal Spin clear them too, and phazing or Clear
+    // Smog breaks the stall: Avalugg's Rapid Spin, the search's pick at 0.63, was skipped three times against Toxapex for
+    // Recover at 0.52 (2687740108).
+    if (move.category === 'Status' && (move.flags?.heal || move.sideCondition ||
+        (['defog', 'courtchange', 'tidyup'].includes(move.id) && ourHazards))) continue;
+    if (notForTheDamage.has(move.id)) continue;
     result.set(action.id, { by: 'stall', reason: `${foe.species} has healed ${healed} times against ${me.species}, and each heal restores ${heal}% while our best hit, ${bestName}, does at most ${best}%; ${move.name} cannot outpace that, so switch or break the stall instead` });
   }
   return result;

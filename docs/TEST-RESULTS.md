@@ -2361,3 +2361,18 @@ overruling the search, or a guard's fallback. Four fixes:
   Ice Burn and Geomancy.
 - Fly, Dig, Dive, Bounce, Phantom Force and Shadow Force stay unmodelled, since their user cannot be hit.
 - 435 tests pass. Preflight over 40 games gives no warnings. `INSTRUCTIONS_VERSION` is `2026-09-25-audit-v10`.
+
+## `outhealed` skips attacks, not Rapid Spin, hazards or our own heals (2026-09-25, audit-v11)
+
+- In 2687740108 Avalugg's Rapid Spin, the search's pick at 0.63, was skipped three times against a Recover Toxapex, the
+  last time for Recover at 0.52. Rapid Spin is used for the hazards, not the damage, and the guard counted it as one
+  more hit that Toxapex outheals.
+- Now left alone:
+  - Rapid Spin and Mortal Spin;
+  - phazing attacks (Circle Throw, Dragon Tail) and Clear Smog;
+  - hazards and screens, which pay whatever the target heals;
+  - Defog, Court Change or Tidy Up while hazards sit on our side;
+  - our own heals (as in audit-v9).
+- Other idle status moves are still skipped, as before.
+- The Wish/Protect test no longer expects Stealth Rock to be skipped. A new test covers Rapid Spin against Toxapex.
+  436 tests pass, and preflight over 40 games gives no warnings.
