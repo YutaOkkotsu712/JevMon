@@ -22843,3 +22843,98 @@ fn test_anger_shell_boosts_when_a_hit_drops_it_below_half() {
     healthy.apply_instructions(&instructions[0].instruction_list);
     assert_eq!(0, healthy.side_two.attack_boost, "a hit that leaves it above half changes nothing");
 }
+
+fn applied(instructions: &Vec<StateInstructions>, state: &State, branch: usize) -> State {
+    let mut after = state.clone();
+    after.apply_instructions(&instructions[branch].instruction_list);
+    after
+}
+
+#[test]
+fn test_disable_stops_the_move_the_target_used_last() {
+    let mut state = State::default();
+    state.side_two.last_used_move = LastUsedMove::Move(PokemonMoveIndex::M0);
+    state.side_one.get_active().speed = 200;
+    let instructions = set_moves_on_pkmn_and_call_generate_instructions(
+        &mut state,
+        Choices::DISABLE,
+        Choices::TACKLE,
+    );
+    let hit = instructions.iter().position(|i| i.instruction_list.iter().any(|x| matches!(x, Instruction::DisableMove(_)))).expect("a branch where Disable lands");
+    let after = applied(&instructions, &state, hit);
+    assert!(after.side_two.get_active_immutable().moves.m0.disabled);
+}
+
+#[test]
+fn test_cursed_body_disables_the_hit_three_times_in_ten() {
+    let mut state = State::default();
+    state.side_two.get_active().ability = Abilities::CURSEDBODY;
+    state.side_one.last_used_move = LastUsedMove::Move(PokemonMoveIndex::M0);
+    let instructions = set_moves_on_pkmn_and_call_generate_instructions(
+        &mut state,
+        Choices::TACKLE,
+        Choices::SPLASH,
+    );
+    let disabled: f32 = instructions
+        .iter()
+        .filter(|i| i.instruction_list.iter().any(|x| matches!(x, Instruction::DisableMove(d) if d.side_ref == SideReference::SideOne)))
+        .map(|i| i.percentage)
+        .sum();
+    assert!((disabled - 30.0).abs() < 0.01, "30% of branches disable Tackle, got {}", disabled);
+}
+
+#[test]
+fn test_synchronize_passes_paralysis_back() {
+    let mut state = State::default();
+    state.side_two.get_active().ability = Abilities::SYNCHRONIZE;
+    let instructions = set_moves_on_pkmn_and_call_generate_instructions(
+        &mut state,
+        Choices::THUNDERWAVE,
+        Choices::SPLASH,
+    );
+    let landed = instructions.iter().position(|i| i.percentage > 50.0).expect("Thunder Wave lands 90% of the time");
+    let after = applied(&instructions, &state, landed);
+    assert_eq!(PokemonStatus::PARALYZE, after.side_two.get_active_immutable().status);
+    assert_eq!(PokemonStatus::PARALYZE, after.side_one.get_active_immutable().status, "the Thunder Wave user is paralysed back");
+}
+
+#[test]
+fn test_electromorphosis_charges_and_the_charge_ends_with_the_next_electric_attack() {
+    let mut state = State::default();
+    state.side_two.get_active().ability = Abilities::ELECTROMORPHOSIS;
+    state.side_two.get_active().hp = 1000;
+    state.side_two.get_active().maxhp = 1000;
+    let instructions = set_moves_on_pkmn_and_call_generate_instructions(
+        &mut state,
+        Choices::TACKLE,
+        Choices::SPLASH,
+    );
+    let mut state = applied(&instructions, &state, 0);
+    assert!(state.side_two.volatile_statuses.contains(&PokemonVolatileStatus::CHARGE));
+    // Enough HP on the target that neither hit is capped by it.
+    state.side_one.get_active().hp = 1000;
+    state.side_one.get_active().maxhp = 1000;
+    let charged = set_moves_on_pkmn_and_call_generate_instructions(&mut state, Choices::SPLASH, Choices::THUNDERBOLT);
+    let after = applied(&charged, &state, 0);
+    assert!(!after.side_two.volatile_statuses.contains(&PokemonVolatileStatus::CHARGE), "the charge is spent");
+    let mut plain = State::default();
+    plain.side_one.get_active().hp = 1000;
+    plain.side_one.get_active().maxhp = 1000;
+    let unboosted = set_moves_on_pkmn_and_call_generate_instructions(&mut plain, Choices::SPLASH, Choices::THUNDERBOLT);
+    assert!(damage_to(&charged, SideReference::SideOne) > damage_to(&unboosted, SideReference::SideOne) * 3 / 2);
+}
+
+#[test]
+fn test_poison_puppeteer_confuses_with_its_poison() {
+    let mut state = State::default();
+    state.side_one.get_active().ability = Abilities::POISONPUPPETEER;
+    state.side_two.get_active().hp = 1000;
+    state.side_two.get_active().maxhp = 1000;
+    let instructions = set_moves_on_pkmn_and_call_generate_instructions(
+        &mut state,
+        Choices::SLUDGEBOMB,
+        Choices::SPLASH,
+    );
+    assert!(instructions.iter().any(|i| i.instruction_list.iter().any(|x| matches!(x,
+        Instruction::ApplyVolatileStatus(v) if v.volatile_status == PokemonVolatileStatus::CONFUSION && v.side_ref == SideReference::SideTwo))));
+}

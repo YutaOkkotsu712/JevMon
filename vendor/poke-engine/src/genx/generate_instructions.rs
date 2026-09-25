@@ -23,7 +23,7 @@ use crate::instruction::{ChangeTimesAttackedInstruction,
 };
 use crate::instruction::{ChangeAbilityInstruction, ToggleTerastallizedInstruction};
 use crate::instruction::{DecrementFutureSightInstruction, FormeChangeInstruction};
-use crate::instruction::{DecrementPPInstruction, SetLastUsedMoveInstruction};
+use crate::instruction::{DecrementPPInstruction, DisableMoveInstruction, SetLastUsedMoveInstruction};
 
 use super::damage_calc::calculate_futuresight_damage;
 use super::damage_calc::{calculate_damage, type_effectiveness_modifier, DamageRolls};
@@ -690,6 +690,24 @@ fn get_instructions_from_volatile_statuses(
         side.volatile_statuses
             .insert(volatile_status.volatile_status);
         incoming_instructions.instruction_list.push(ins);
+
+        // Disable stops the move the target used last. The move lasts four turns; here it lasts until the target
+        // switches out, which re-enables it. Before this the volatile was set and blocked nothing, for Disable itself
+        // and for Cursed Body.
+        if volatile_status.volatile_status == PokemonVolatileStatus::DISABLE {
+            if let LastUsedMove::Move(index) = side.last_used_move {
+                let active = side.get_active();
+                if !active.moves[&index].disabled && active.moves[&index].id != Choices::NONE {
+                    active.moves[&index].disabled = true;
+                    incoming_instructions
+                        .instruction_list
+                        .push(Instruction::DisableMove(DisableMoveInstruction {
+                            side_ref: target_side,
+                            move_index: index,
+                        }));
+                }
+            }
+        }
     }
 }
 
@@ -891,7 +909,27 @@ fn get_instructions_from_status_effects(
             new_status: status.status,
         })
     };
+    let synchronized = matches!(instruction, Instruction::ChangeStatus(_))
+        && status.target == MoveTarget::Opponent
+        && state.get_side(&target_side_ref).get_active_immutable().ability == Abilities::SYNCHRONIZE
+        && [PokemonStatus::BURN, PokemonStatus::PARALYZE, PokemonStatus::POISON, PokemonStatus::TOXIC]
+            .contains(&status.status);
     incoming_instructions.instruction_list.push(instruction);
+    // Synchronize passes a burn, paralysis or poison from the opponent back to it. The one who sent it may be immune
+    // or already statused, which the same checks settle; a Synchronize of its own cannot bounce it back again, since
+    // the holder is statused by then.
+    if synchronized {
+        get_instructions_from_status_effects(
+            state,
+            &Status {
+                status: status.status,
+                target: MoveTarget::Opponent,
+            },
+            &target_side_ref,
+            incoming_instructions,
+            false,
+        );
+    }
 }
 
 pub fn get_boost_amount(side: &Side, boost: &PokemonBoostableStat, amount: i8) -> i8 {
@@ -1543,6 +1581,20 @@ fn generate_instructions_from_damage(
                     &mut incoming_instructions,
                 );
             }
+        }
+
+        // Charge doubles the next Electric attack and then ends; before this it doubled every one until switching out.
+        let attacking_side = state.get_side(attacking_side_ref);
+        if choice.move_type == PokemonType::ELECTRIC
+            && attacking_side.volatile_statuses.contains(&PokemonVolatileStatus::CHARGE)
+        {
+            attacking_side.volatile_statuses.remove(&PokemonVolatileStatus::CHARGE);
+            incoming_instructions
+                .instruction_list
+                .push(Instruction::RemoveVolatileStatus(RemoveVolatileStatusInstruction {
+                    side_ref: *attacking_side_ref,
+                    volatile_status: PokemonVolatileStatus::CHARGE,
+                }));
         }
 
         let attacking_pokemon = state.get_side(attacking_side_ref).get_active();

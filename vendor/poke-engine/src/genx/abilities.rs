@@ -967,6 +967,25 @@ pub fn ability_after_damage_hit(
                 attacking_side.side_conditions.toxic_spikes += 1;
             }
         }
+        Abilities::ELECTROMORPHOSIS => {
+            // Being hit charges the holder: its next Electric attack does double.
+            if damage_dealt > 0
+                && defending_pkmn.hp > 0
+                && !defending_side
+                    .volatile_statuses
+                    .contains(&PokemonVolatileStatus::CHARGE)
+            {
+                defending_side
+                    .volatile_statuses
+                    .insert(PokemonVolatileStatus::CHARGE);
+                instructions
+                    .instruction_list
+                    .push(Instruction::ApplyVolatileStatus(ApplyVolatileStatusInstruction {
+                        side_ref: side_ref.get_other_side(),
+                        volatile_status: PokemonVolatileStatus::CHARGE,
+                    }));
+            }
+        }
         Abilities::ANGERSHELL => {
             // Dropping below half HP: +1 Attack, Special Attack and Speed, -1 Defense and Special Defense.
             if damage_dealt > 0
@@ -2311,6 +2330,25 @@ pub fn ability_modify_attack_being_used(
                 attacker_choice.base_power *= 1.5;
             }
         }
+        Abilities::POISONPUPPETEER => {
+            // Poison from the holder also confuses. Modelled as a confusion with the same chance as each poison, where
+            // Showdown ties the two together.
+            let mut confusions = vec![];
+            for secondary in attacker_choice.secondaries.iter().flatten() {
+                if secondary.target == MoveTarget::Opponent
+                    && matches!(secondary.effect, Effect::Status(PokemonStatus::POISON) | Effect::Status(PokemonStatus::TOXIC))
+                {
+                    confusions.push(secondary.chance);
+                }
+            }
+            for chance in confusions {
+                attacker_choice.add_or_create_secondaries(Secondary {
+                    chance,
+                    target: MoveTarget::Opponent,
+                    effect: Effect::VolatileStatus(PokemonVolatileStatus::CONFUSION),
+                });
+            }
+        }
         Abilities::SERENEGRACE => {
             if let Some(secondaries) = &mut attacker_choice.secondaries {
                 for secondary in secondaries.iter_mut() {
@@ -2814,6 +2852,16 @@ pub fn ability_modify_attack_against(
                     chance: 11.0,
                     target: MoveTarget::User,
                     effect: Effect::Status(PokemonStatus::SLEEP),
+                });
+            }
+        }
+        Abilities::CURSEDBODY => {
+            // A damaging hit is disabled 30% of the time.
+            if attacker_choice.category != MoveCategory::Status {
+                attacker_choice.add_or_create_secondaries(Secondary {
+                    chance: 30.0,
+                    target: MoveTarget::User,
+                    effect: Effect::VolatileStatus(PokemonVolatileStatus::DISABLE),
                 });
             }
         }

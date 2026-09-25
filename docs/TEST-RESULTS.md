@@ -2064,3 +2064,27 @@ Tests: 408 pass.
 - On the last 10 battles it gave 14 flags. They include Tail Slap, No Retreat, Kingdra's Dragon Dance over Outrage on
   turn 12, the Outrage into Mimikyu, the Dragapult sacrifice and the Strength Sap loop: every case the manual review
   found. Deliberate low-HP sacrifices are left out.
+
+## Engine: Cursed Body, Synchronize, Poison Puppeteer, Electromorphosis, and Disable and Charge made real (2026-09-25)
+
+- **Disable** set its volatile and blocked nothing, for the move itself and for Cursed Body. It now disables the
+  target's last-used move until it switches out; the real move lasts four turns, and the search rarely looks further.
+- **Cursed Body** (Gengar, Froslass, Banette, Polteageist, Dragapult): a damaging hit is disabled 30% of the time,
+  modelled as a secondary effect the way Flame Body and Static are.
+- **Synchronize** (Mew, Umbreon): a burn, paralysis or poison from the opponent is passed back to it, subject to the same
+  immunity checks.
+- **Poison Puppeteer** (Pecharunt): each poison chance comes with a confusion chance. Showdown ties the two together;
+  here they are independent.
+- **Electromorphosis** (Bellibolt): a hit charges the holder. **Charge** now ends with the next Electric attack; before,
+  it doubled every one until switching out.
+- **Left out.**
+  - Harvest: 50% a turn outside sun, which the engine's end-of-turn step cannot branch on, and none of its Random
+    Battle users sets sun.
+  - Illusion, Dancer, and the effects that do not matter to the search (Frisk, Unnerve, Cud Chew, Cheek Pouch, Early
+    Bird, Sniper, Power Spot, Cute Charm).
+- **Checks.**
+  - Engine: 233 unit and 684 battle-mechanics tests pass, including five new ones: Disable, Cursed Body at 30%,
+    Synchronize, Electromorphosis's charge and its end, and Poison Puppeteer.
+  - On 245 logged positions, every depth-2 matrix that changed came from one with these abilities or Disable or Charge
+    (74 had one, mostly among the sampled unrevealed Pokémon).
+  - Deployed; the previous binary is kept as `poke-engine.before-abilities`.
