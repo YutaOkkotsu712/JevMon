@@ -44,8 +44,9 @@ export interface DecisionLoopOptions {
   onDecision: (record: DecisionRecord) => void;
   provider?: DecisionProvider;
   timeoutMs?: number;
-  /** False runs no strategy guards, for measuring what they are worth on the self-play bench. */
-  guards?: boolean;
+  /** False runs no strategy guards, and `skip` leaves the named ones out, for measuring what they are worth on the
+   * self-play bench. */
+  guards?: boolean | { skip: string[] };
   /**
    * Lookahead by poke-engine. `advise` puts its verdict in the provider's payload; `blend` also averages its visit
    * shares with the provider's probabilities and plays the top of that, the way Jaxcalibur lets its network's prior
@@ -270,7 +271,8 @@ export class DecisionLoop {
       // A guard that throws loses its own opinion, never the turn: an exception here used to end the whole decision
       // with no choice sent, which the battle timer turns into a loss.
       const dominance = new Map<string, { by: string; reason: string; prefer?: string }>();
-      for (const guard of this.options.guards === false ? [] : [dominatedMoves, ...GUARDS]) {
+      const skipGuards = typeof this.options.guards === 'object' ? new Set(this.options.guards.skip) : null;
+      for (const guard of this.options.guards === false ? [] : [dominatedMoves, ...GUARDS].filter(g => !skipGuards?.has(g.name))) {
         let found: Map<string, { by: string; reason: string; prefer?: string }>;
         try { found = guard({ state, legalActions: actions, request }); }
         catch { this.options.onStatus(`strategy guard ${guard.name} failed; ignoring it for this decision`); continue; }

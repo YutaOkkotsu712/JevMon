@@ -7,7 +7,8 @@
 //     --a '{"worlds":16,"msPerWorld":200}' --b '{"worlds":32,"msPerWorld":400,"extraWorlds":16}' --name budget
 //
 // A config takes the search settings (worlds, msPerWorld, extraWorlds, closeRatio, endgamePokemon, endgameWorlds,
-// endgameMsPerWorld, weights: a POKE_ENGINE_WEIGHTS file) and guards: false to play without the strategy guards. Results
+// endgameMsPerWorld, weights: a POKE_ENGINE_WEIGHTS file), guards: false to play without the strategy guards, and
+// skipGuards: ["savingTheDoomed", ...] to leave only those out. Results
 // go to logs/bench/<name>.jsonl, one line per game; rerunning with the same name resumes where it stopped. Every decision's
 // evaluation terms, from the deciding side and labelled with its result, go to <name>.positions.jsonl for fitting weights. Searches are CPU-bound and time-limited,
 // so the bench refuses to run while the ladder bot is playing unless --force is given.
@@ -45,7 +46,7 @@ if (!args.force && existsSync(pidFile)) {
 }
 
 const defaults = { bin: process.env.POKE_ENGINE_BIN?.trim() || 'vendor/poke-engine/target/release/poke-engine', worlds: 16, msPerWorld: 200,
-  extraWorlds: 0, closeRatio: 0.6, endgamePokemon: 0, endgameWorlds: 8, endgameMsPerWorld: 400, guards: true };
+  extraWorlds: 0, closeRatio: 0.6, endgamePokemon: 0, endgameWorlds: 8, endgameMsPerWorld: 400, guards: true, skipGuards: [] };
 const configs = { A: { ...defaults, ...JSON.parse(args.a) }, B: { ...defaults, ...JSON.parse(args.b) } };
 const parallel = Math.max(1, Number(args.parallel));
 // Both players search at once in every game.
@@ -93,7 +94,8 @@ async function play(seed, bAs) {
       },
       onStatus(status) { if (/invalid request|no request-supported|retry limit|processing failed/.test(status)) fatal(new Error(status)); },
       onSnapshot(event, state) { turns = Math.max(turns, state.turn); if (event === 'win') winner = state.winner; },
-      play: { dryRun: false, timeoutMs: 50, guards: config.guards !== false,
+      play: { dryRun: false, timeoutMs: 50,
+        guards: config.guards === false ? false : config.skipGuards?.length ? { skip: config.skipGuards } : true,
         // Search alone decides: without a provider ranking the blend plays the search's own.
         provider: { async chooseAction() { throw new Error('search only'); } },
         search: { mode: 'blend', weight: 1, overrideMargin: 0.03, inPayload: false, timeoutMs: searchTimeoutMs(config, lanes),
