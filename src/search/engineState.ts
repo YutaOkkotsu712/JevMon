@@ -40,7 +40,13 @@ const volatiles = new Set(['MUSTRECHARGE', 'AQUARING', 'ATTRACT', 'CONFUSION', '
   'FOCUSENERGY', 'HEALBLOCK', 'INGRAIN', 'LEECHSEED', 'MAGNETRISE', 'NORETREAT', 'PARTIALLYTRAPPED', 'PERISH4', 'PERISH3',
   'PERISH2', 'PERISH1', 'ROOST', 'SALTCURE', 'SLOWSTART', 'SUBSTITUTE', 'TAUNT', 'YAWN', 'PROTOSYNTHESISATK', 'PROTOSYNTHESISDEF',
   'PROTOSYNTHESISSPA', 'PROTOSYNTHESISSPD', 'PROTOSYNTHESISSPE', 'QUARKDRIVEATK', 'QUARKDRIVEDEF', 'QUARKDRIVESPA',
-  'QUARKDRIVESPD', 'QUARKDRIVESPE']);
+  'QUARKDRIVESPD', 'QUARKDRIVESPE',
+  // Smack Down grounds, Tar Shot makes Fire hit double, Charge doubles the next Electric move, Throat Chop stops sound
+  // moves and Torment a repeat: the engine reads each, and none reached it before.
+  'SMACKDOWN', 'TARSHOT', 'CHARGE', 'THROATCHOP', 'TORMENT',
+  // The charging turn of a two-turn move, which the engine turns into the strike next turn.
+  'BOUNCE', 'DIG', 'DIVE', 'FLY', 'FREEZESHOCK', 'GEOMANCY', 'ICEBURN', 'METEORBEAM', 'ELECTROSHOT', 'PHANTOMFORCE',
+  'RAZORWIND', 'SHADOWFORCE', 'SKULLBASH', 'SKYATTACK', 'SOLARBEAM', 'SOLARBLADE']);
 const upper = (v: string | null | undefined) => id(v).toUpperCase();
 const PLACEHOLDER = 'none,1,Typeless,Typeless,Typeless,Typeless,0,1,NONE,NONE,NONE,SERIOUS,,1,1,1,1,1,None,0,0,1,NONE;true;0,NONE;true;0,NONE;true;0,NONE;true;0,false,false,Normal,0';
 
@@ -89,6 +95,12 @@ function pokemon(p: PokemonState, set: Candidate | undefined, known: boolean, us
   const species = dex.species.get(canonicalSpecies(p.transformedInto ?? p.species));
   if (!species.exists) return null;
   const types = [species.types[0], species.types[1] ?? 'Typeless'];
+  // Soak, Protean, Libero and Burn Up change the typing until it switches out; the engine reverts to the base types
+  // then, so those stay the species' own. Before, the changed typing never reached it.
+  // Burn Up leaves its user typeless, which Showdown writes as ???.
+  const changed = !p.transformedInto && p.volatiles.typechange?.data
+    ? p.volatiles.typechange.data.split('/').map(t => (t === '???' ? 'Typeless' : t)) : null;
+  const current = changed ? [changed[0]!, changed[1] ?? 'Typeless'] : types;
   const copied = p.transformedInto && p.copiedMoves.length ? [...new Set(p.copiedMoves.map(id))].slice(0, 4) : null;
   const maxHP = p.exactHP?.max ?? built.maxHP();
   const hp = p.fainted ? 0 : p.exactHP?.current ?? Math.max(1, Math.round((p.hpPercent ?? 100) / 100 * maxHP));
@@ -108,7 +120,7 @@ function pokemon(p: PokemonState, set: Candidate | undefined, known: boolean, us
   while (moves.length < 4) moves.push('NONE;true;0');
   const evs = set?.evs ? [set.evs.hp, set.evs.atk, set.evs.def, set.evs.spa, set.evs.spd, set.evs.spe].join(';') : '';
   const stats = built.rawStats;
-  return [upper(species.name), levelOf(p), ...types, ...types, hp, maxHP, ability, baseAbility, item, 'SERIOUS', evs,
+  return [upper(species.name), levelOf(p), ...current, ...types, hp, maxHP, ability, baseAbility, item, 'SERIOUS', evs,
     stats.atk, stats.def, stats.spa, stats.spd, stats.spe, status[p.status ?? ''] ?? 'None',
     // The engine's Rest counter starts at 3 and wakes on 1, one step per turn spent asleep.
     p.sleepFromRest ? Math.max(1, 3 - (p.sleepTurns ?? 0)) : 0, p.sleepTurns ?? 0, species.weightkg,
@@ -184,6 +196,12 @@ function side(s: BattleState, sideId: SideId, known: boolean, world: World, lega
   const locked = !!rampage && last >= 0 && id(me!.lastMoveUsed ?? '') === id(rampage.move) &&
     (legal ? legal.moves.size === 1 && legal.moves.has(id(rampage.move)) : !known && rampage.turns === 1);
   if (locked && !vols.includes('LOCKEDMOVE')) vols.push('LOCKEDMOVE');
+  const abilityOf = (p: PokemonState) => p.abilitySuppressed ? '' : id(p.ability ?? (known ? '' : world.sets.get(p.id)?.ability) ?? '');
+  // Truant: having moved last turn, it loafs this one. A move before its last switch-in does not count.
+  if (me && abilityOf(me) === 'truant' && me.lastActedTurn === s.turn - 1 && (me.activeSinceTurn ?? Infinity) <= me.lastActedTurn) vols.push('TRUANT');
+  // Unburden doubles Speed once the holder's item is gone while it is out.
+  if (me && abilityOf(me) === 'unburden' && me.itemLostOnTurn !== undefined && (me.activeSinceTurn ?? Infinity) <= me.itemLostOnTurn) vols.push('UNBURDEN');
+  if (me && !me.transformedInto && me.volatiles.typechange?.data && !vols.includes('TYPECHANGE')) vols.push('TYPECHANGE');
   const since = (key: string) => Object.entries(me?.volatiles ?? {}).find(([k]) => id(k) === key)?.[1].sinceTurn;
   const counted = (key: string, most: number) => since(key) === undefined ? 0 : Math.min(most, elapsed(s, since(key)!));
   // Slow Start starts at 6 on entry and ends at 0, one step each end of turn.

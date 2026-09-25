@@ -435,6 +435,24 @@ test('the search timeout covers the extra pass or the endgame, whichever is long
   assert.equal(searchTimeoutMs({ ...base, endgamePokemon: 4, endgameMsPerWorld: 2000 }, 8), 1 * 2000 * 2 + 1000);
 });
 
+test('two-turn moves, type changes, Truant and grounding reach the engine', () => {
+  const b = battleFor([ourRow('Slaking', 83, ['Double-Edge', 'Earthquake', 'Knock Off', 'Slack Off'], 'Truant', 'Choice Band', 'Normal')], 'Greninja', 81);
+  b.feed('|move|p1a: Slaking|Knock Off|p2a: Foe'); b.feed('|move|p2a: Foe|Ice Beam|p1a: Slaking');
+  b.feed('|-start|p2a: Foe|typechange|Ice|[from] ability: Protean'); b.feed('|-start|p2a: Foe|Smack Down'); b.feed('|turn|2');
+  let [ours, theirs] = engineStateOf(b.state, 'p1', worldOf(b.state, 'p1', () => 0.5)).state.split('/');
+  let one = ours!.split('='), two = theirs!.split('=');
+  const foe = two[Number(two[6])]!.split(',');
+  assert.deepEqual(foe.slice(2, 6), ['Ice', 'Typeless', 'Water', 'Dark'], 'Protean made it Ice; its own typing returns on switching out');
+  assert.match(two[8]!, /TYPECHANGE:/);
+  assert.match(two[8]!, /SMACKDOWN:/, 'grounded by Smack Down');
+  assert.match(one[8]!, /TRUANT:/, 'Slaking moved last turn, so it loafs this one');
+  b.feed('|move|p2a: Foe|Phantom Force||[still]'); b.feed('|-prepare|p2a: Foe|Phantom Force'); b.feed('|turn|3');
+  [ours, theirs] = engineStateOf(b.state, 'p1', worldOf(b.state, 'p1', () => 0.5)).state.split('/');
+  one = ours!.split('='); two = theirs!.split('=');
+  assert.match(two[8]!, /PHANTOMFORCE:/, 'out of reach, striking next turn');
+  assert.doesNotMatch(one[8]!, /TRUANT:/, 'Slaking loafed on turn 2, so it moves on turn 3');
+});
+
 test('an opposing Choice lock reaches the engine as ours does', () => {
   const b = battleFor([ourRow('Gengar', 82, ['Shadow Ball', 'Sludge Wave', 'Focus Blast', 'Nasty Plot'], 'Cursed Body', 'Life Orb', 'Ghost')], 'Heracross', 83);
   b.feed('|move|p2a: Foe|Close Combat|p1a: Gengar'); b.feed('|-immune|p1a: Gengar'); b.feed('|turn|2');

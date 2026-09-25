@@ -383,6 +383,11 @@ export class BattleTracker {
       case '-singlemove':
         if (pokemon && second) pokemon.volatiles[effectName(second)] = { sinceTurn: this.state.turn, data: singleMove };
         break;
+      // The first turn of a two-turn move (Phantom Force, Solar Beam, Dig): next turn it strikes, and meanwhile the flier
+      // or digger is out of reach. It lasts until the holder next moves.
+      case '-prepare':
+        if (pokemon && second) pokemon.volatiles[moveId(second)] = { sinceTurn: this.state.turn, data: singleMove };
+        break;
       case '-end':
         if (pokemon) {
           delete pokemon.volatiles[effectName(second)];

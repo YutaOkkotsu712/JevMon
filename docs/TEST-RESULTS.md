@@ -2146,3 +2146,24 @@ Tests: 408 pass.
 - Also found and left: a pending Future Sight is never written, since the engine takes it by turns and user slot. It is
   rare in the sets.
 - One new test; 424 pass. The engine took all 830 logged positions with timed effects.
+
+## Effects the engine reads that never reached it (2026-09-25)
+
+- The search passes a volatile to the engine only if it is on an allow-list. Several that the engine reads were
+  missing, or the tracker never recorded them:
+  - Smack Down (grounding), Tar Shot (Fire at double), Charge, Throat Chop and Torment are now on the list. The
+    tracker already recorded each from its `-start` line.
+  - **Two-turn moves** (Phantom Force, Shadow Force, Dig, Fly, Bounce, Dive, Solar Beam and Blade, Meteor Beam,
+    Electro Shot, Sky Attack and the rest): the tracker now records `-prepare` as a volatile that lasts until the
+    holder next moves. The engine then treats the holder as out of reach and forces the strike next turn. Before, a
+    Phantom Force in progress looked like an opponent free to do anything.
+  - **Type changes** (Soak, Protean, Libero, Burn Up): the typing is written as changed, with the species' own as the
+    base types, and a `TYPECHANGE` volatile so the engine reverts it on switching out. Burn Up's `???` is written as
+    Typeless.
+  - **Truant**: a Truant Pokémon that moved last turn, since its latest switch-in, carries `TRUANT`, so the engine knows
+    it loafs this turn. Before, Slaking looked able to attack every turn.
+  - **Unburden**: set once the holder's item is lost while it is out.
+- Checks:
+  - One new test covering Protean's typing, Smack Down, Truant on and off, and Phantom Force's charging turn. 425 pass.
+  - The engine read a position carrying all of them, and the opponent's only option was the Phantom Force strike. It
+    took all 830 logged positions with timed effects.
