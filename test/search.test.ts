@@ -435,6 +435,24 @@ test('the search timeout covers the extra pass or the endgame, whichever is long
   assert.equal(searchTimeoutMs({ ...base, endgamePokemon: 4, endgameMsPerWorld: 2000 }, 8), 1 * 2000 * 2 + 1000);
 });
 
+test('timed effects reach the engine with the turns they have left', () => {
+  const b = battleFor([ourRow('Snorlax', 84, ['Body Slam', 'Curse', 'Rest', 'Sleep Talk'], 'Thick Fat', 'Leftovers', 'Normal')], 'Dragonite', 80);
+  b.feed('|turn|2');
+  b.feed('|-fieldstart|move: Trick Room|[of] p2a: Foe'); b.feed('|-sidestart|p1: Test Bot|Reflect'); b.feed('|-sidestart|p1: Test Bot|move: Tailwind');
+  b.feed('|-start|p1a: Snorlax|move: Taunt'); b.feed('|turn|3');
+  b.feed('|move|p2a: Foe|Outrage|p1a: Snorlax'); b.feed('|-start|p1a: Snorlax|move: Yawn'); b.feed('|turn|4');
+  const [ours, theirs, ...field] = engineStateOf(b.state, 'p1', worldOf(b.state, 'p1', () => 0.5)).state.split('/');
+  const one = ours!.split('='), two = theirs!.split('=');
+  const conditions = one[7]!.split(';');
+  assert.equal(conditions[10], '3', 'Reflect from turn 2 has three turns left on turn 4');
+  assert.equal(conditions[15], '2', 'Tailwind lasts four');
+  assert.equal(field[2], 'true;3', 'and Trick Room three');
+  const [, , , , taunt, yawn] = one[9]!.split(';');
+  assert.deepEqual([taunt, yawn], ['2', '1'], 'Taunt two ends of turn in; the Yawn from turn 3 puts Snorlax to sleep at the end of this one');
+  assert.match(two[8]!, /LOCKEDMOVE:/, 'an Outrage on its first turn goes on at least one more');
+  assert.equal(two[9]!.split(';')[2], '1');
+});
+
 test('the hits a Pokémon has taken reach the engine, for Rage Fist', () => {
   // The engine's Rage Fist was a flat 50 base power; it gains 50 for every hit its user has taken, up to 350.
   const b = battleFor([ourRow('Annihilape', 76, ['Rage Fist', 'Drain Punch', 'Bulk Up', 'Gunk Shot'], 'Defiant', 'Leftovers', 'Water')], 'Cobalion', 80);

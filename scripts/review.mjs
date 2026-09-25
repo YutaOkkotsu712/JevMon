@@ -61,11 +61,15 @@ for (const f of files) {
     // A certain knockout that moves first, and a move played instead that is neither it nor another one.
     if (s.requestKind === 'move' && me && foe && !foe.fainted && !Object.keys(foe.volatiles ?? {}).some(k => /substitute/i.test(k))) {
       const moveOf = a => a.kind === 'move' ? a.label.split(' + Tera')[0] : null;
-      const certain = name => { try { return dex.moves.get(name).category !== 'Status' && damageRange(s, name)?.conditionalKO === 'all-sampled-rolls'; } catch { return false; } };
-      const ko = d.legalActions.map(moveOf).find(n => n && n !== 'Sucker Punch' && certain(n) &&
+      const teraOf = a => a.command?.endsWith(' terastallize') ? me.teraType ?? undefined : undefined;
+      const certain = (name, tera) => { try { return dex.moves.get(name).category !== 'Status' && damageRange(s, name, tera)?.conditionalKO === 'all-sampled-rolls'; } catch { return false; } };
+      // A knockout paid for with recoil or the user's own faint is not one to insist on: Squawkabilly at 13% took a
+      // Tera Facade over a Brave Bird whose recoil would have knocked it out too (2687654389).
+      const costly = m => !!(m.recoil || m.mindBlownRecoil || m.selfdestruct || m.hasCrashDamage);
+      const ko = d.legalActions.map(moveOf).find(n => n && n !== 'Sucker Punch' && !costly(dex.moves.get(n)) && certain(n) &&
         hitChancePercent(n, s.field.weather, me, foe) >= 100 && turnOrder(s, me, n)?.order === 'ours-first');
       const playedMove = moveOf(d.selectedAction);
-      if (ko && playedMove !== ko && !(playedMove && certain(playedMove))) {
+      if (ko && playedMove !== ko && !(playedMove && certain(playedMove, teraOf(d.selectedAction)))) {
         const teraLeft = !s.sides[foeSide].team.some(p => p.terastallized);
         flag('knockout-passed', t, `${ko} moved first and knocked ${foe.species} (${Math.round(foe.hpPercent ?? 0)}%) out at every sampled roll${teraLeft ? ' (unless it Terastallizes)' : ''}; played ${L(played)} by ${d.decidedBy ?? 'provider'}${jev && jev !== played ? `, Jev wanted ${L(jev)}` : ''}`);
       }
@@ -75,7 +79,8 @@ for (const f of files) {
     const ourMove = turnLines.findIndex(l => l.startsWith(`|move|${my}a: `));
     if (ourMove >= 0 && s.requestKind === 'move') {
       const next = turnLines[ourMove + 1] ?? '';
-      if (/^\|-(immune|fail)\|/.test(next) && !/^\|-fail\|.*\|(unboost|boost)/.test(next)) {
+      // A move with no target left (it fainted first) is not a wasted choice.
+      if (/^\|-(immune|fail)\|/.test(next) && !/^\|-fail\|.*\|(unboost|boost)/.test(next) && !turnLines[ourMove].includes('[notarget]')) {
         flag('did-nothing', t, `${turnLines[ourMove].split('|')[3]} → ${next.split('|').slice(1, 4).join(' ')}`);
       }
     }

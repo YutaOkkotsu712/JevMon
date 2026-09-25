@@ -2106,3 +2106,30 @@ Tests: 408 pass.
   horizon), Scope Lens (a crit rate) and Leppa Berry (one set). The rest are handled where the engine applies them.
 - Engine: 233 unit and 685 battle-mechanics tests pass, including a new Throat Chop test. Deployed; the previous binary
   is kept as `poke-engine.before-throatchop`.
+
+## Timed effects reach the engine with the turns they have left (2026-09-25)
+
+- The search wrote every timed effect as if it had just started:
+  - screens, Mist, Safeguard and Tailwind at 5 turns;
+  - weather, terrain and Trick Room at 5;
+  - every volatile duration at 0.
+- So a Reflect about to end read five turns, a Trick Room on its last turn read five, and a Yawn due to put us to sleep
+  this turn read a turn away. Slow Start written at 0 counted down past zero and never ended, leaving Regigigas weakened
+  for good. The tracker already had the start turns (`effectStartTurns`, each condition's and volatile's `sinceTurn`)
+  and a record of rampages.
+- Now written:
+  - Screens and the rest: 5 (Tailwind 4) less the ends of turn seen.
+  - Weather, terrain and Trick Room likewise.
+  - Durations: Encore and Taunt count ends of turn to 2, Yawn to 1, and Slow Start down from 6.
+  - An Outrage lock, when the request offers only the rampage move, or for the opponent after its first turn. It is
+    written only when the rampage move is the last move used and is in the written moveset, since the engine repeats a
+    move by its slot.
+  - An effect started before turn 1 counts from turn 1.
+- Checks:
+  - One new test. It sets up Reflect, Tailwind and Trick Room on turn 2, Taunt on turn 2 and Yawn on turn 3, and an
+    opposing Outrage, then reads them on turn 4. 423 pass.
+  - The live engine took all 830 logged positions with timed effects without an error. The 15 that could not be written
+    fail the same way before this change: they are old logs without `movePP`.
+- `npm run review` no longer flags a knockout that would cost our Pokémon to recoil (Squawkabilly at 13% took a Tera
+  Facade over a Brave Bird whose recoil would have knocked it out as well), a Tera'd move that knocks out, or a move
+  whose target had already fainted.

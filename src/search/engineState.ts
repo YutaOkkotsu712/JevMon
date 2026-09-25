@@ -117,6 +117,11 @@ function pokemon(p: PokemonState, set: Candidate | undefined, known: boolean, us
     Math.min(6, p.hitsTaken ?? 0)].join(',');
 }
 
+/** Ends of turn an effect started on `since` has seen by now; one started before turn 1 has seen none by turn 1. */
+function elapsed(s: BattleState, since: number | undefined) {
+  return since === undefined ? 0 : Math.max(0, s.turn - Math.max(1, since));
+}
+
 /** What our side may actually do this turn, from the request; the engine offers its own options otherwise. */
 export interface Legal { moves: Set<string>; canSwitch: boolean; canTera: boolean; forcedSwitch?: boolean }
 function side(s: BattleState, sideId: SideId, known: boolean, world: World, legal?: Legal) {
@@ -139,11 +144,17 @@ function side(s: BattleState, sideId: SideId, known: boolean, world: World, lega
   const active = Math.max(0, team.findIndex(p => p.id === v.activeId));
   const me = team[active];
   const count = (name: string) => Object.entries(v.hazards).find(([k]) => id(k) === name)?.[1] ?? 0;
-  const turns = (name: string) => (Object.keys(v.conditions).some(k => id(k) === name) ? 5 : 0);
+  // Timed effects go in with the turns they have left. Written as if just started, a Reflect about to end read five
+  // turns, a Yawn due to put us to sleep this turn read a turn away, and Slow Start at 0 counted down past zero and
+  // never ended. An effect started before turn 1, on the leads' entry, has seen no end of turn by turn 1.
+  const turns = (name: string, total = 5) => {
+    const entry = Object.entries(v.conditions).find(([k]) => id(k) === name);
+    return entry ? Math.max(1, total - elapsed(s, entry[1].sinceTurn)) : 0;
+  };
   // The consecutive-Protect count is what makes a repeated Protect fail; leaving it at zero had the search voting
   // for a third Protect as if it always worked.
   const conditions = [turns('auroraveil'), 0, 0, turns('lightscreen'), 0, 0, 0, turns('mist'), me?.consecutiveProtects ?? 0, 0, turns('reflect'),
-    turns('safeguard'), count('spikes'), count('stealthrock') ? 1 : 0, count('stickyweb') ? 1 : 0, turns('tailwind'),
+    turns('safeguard'), count('spikes'), count('stealthrock') ? 1 : 0, count('stickyweb') ? 1 : 0, turns('tailwind', 4),
     me?.status === 'tox' ? me.toxicTurns ?? 0 : 0, count('toxicspikes'), 0].join(';');
   // Fake Out and First Impression work only straight after switching in, which the engine reads from the last action:
   // a Pokémon that has not moved since it entered last "switched", otherwise it last used one of its four moves.
@@ -154,6 +165,19 @@ function side(s: BattleState, sideId: SideId, known: boolean, world: World, lega
   const first = speedSummary(s).ifEqualPriority;
   const glaive = !!me && Object.keys(me.volatiles).some(k => id(k) === 'glaiverush') && (sideId === s.mySide ? first !== 'ours-first' : first === 'ours-first');
   const vols = me ? Object.keys(me.volatiles).map(k => upper(k)).filter(k => volatiles.has(k) || (k === 'GLAIVERUSH' && glaive)) : [];
+  // Outrage and its kind: ours is locked when the request offers only the rampage move; theirs surely is after its
+  // first turn, since the lock lasts two or three. The engine counts ends of turn from 0 and releases after the third.
+  const rampage = me?.rampage;
+  // The engine repeats the last move by its slot, so the rampage move must be the last one used and be in the moveset
+  // written; a sampled set without it would lock them into another move.
+  const locked = !!rampage && last >= 0 && id(me!.lastMoveUsed ?? '') === id(rampage.move) &&
+    (legal ? legal.moves.size === 1 && legal.moves.has(id(rampage.move)) : !known && rampage.turns === 1);
+  if (locked && !vols.includes('LOCKEDMOVE')) vols.push('LOCKEDMOVE');
+  const since = (key: string) => Object.entries(me?.volatiles ?? {}).find(([k]) => id(k) === key)?.[1].sinceTurn;
+  const counted = (key: string, most: number) => since(key) === undefined ? 0 : Math.min(most, elapsed(s, since(key)!));
+  // Slow Start starts at 6 on entry and ends at 0, one step each end of turn.
+  const slowStart = since('slowstart') === undefined ? 0 : Math.max(1, 6 - elapsed(s, since('slowstart')!));
+  const durations = [0, counted('encore', 2), locked ? Math.min(2, rampage!.turns) : 0, slowStart, counted('taunt', 2), counted('yawn', 1)].join(';');
   const b = (stat: string) => me?.boosts[stat] ?? 0;
   // The opponent's HP is written in the sampled set's own units, so its Substitute must be too: a flat 100 made every
   // opposing shell 25 HP, a third of a real one on a typical 300-HP Pokémon. A shell already hit keeps what it has left.
@@ -169,7 +193,7 @@ function side(s: BattleState, sideId: SideId, known: boolean, world: World, lega
   // An opposing Wish carries no exact HP, so it heals half of its user's max HP in this world's sampled set.
   const wish = v.slotConditions.wish;
   const wishHP = wish ? wish.healsHP ?? Math.floor((built(team.find(p => p.id === wish.fromId)) ?? 0) / 2) : 0;
-  return { text: [...written, active, conditions, vols.map(x => `${x}:`).join(''), '0;0;0;0;0;0',
+  return { text: [...written, active, conditions, vols.map(x => `${x}:`).join(''), durations,
     vols.includes('SUBSTITUTE') ? subHP : 0,
     b('atk'), b('def'), b('spa'), b('spd'), b('spe'), b('accuracy'), b('evasion'),
     // The engine sets Wish to 2 and heals when it reaches 1, one step down per end of turn.
@@ -180,7 +204,10 @@ function side(s: BattleState, sideId: SideId, known: boolean, world: World, lega
 /** Our side is side one; the result names the Pokémon behind each engine switch so moves can be mapped back. */
 export function toEngineState(s: BattleState, ourSide: SideId, world: World, legal?: Legal) {
   const ours = side(s, ourSide, true, world, legal), theirs = side(s, ourSide === 'p1' ? 'p2' : 'p1', false, world);
-  const field = [`${weather[s.field.weather ?? ''] ?? 'NONE'};5`, `${terrain[s.field.terrain ?? ''] ?? 'NONE'};5`,
-    `${s.field.trickRoom};5`, 'false'].join('/');
+  // Weather, terrain and Trick Room with the turns they have left too: a Trick Room on its last turn read five.
+  const left = (key: string | null) => Math.max(1, 5 - elapsed(s, key ? s.effectStartTurns[key] : undefined));
+  const field = [`${weather[s.field.weather ?? ''] ?? 'NONE'};${s.field.weather ? left('weather') : 5}`,
+    `${terrain[s.field.terrain ?? ''] ?? 'NONE'};${s.field.terrain ? left(s.field.terrain) : 5}`,
+    `${s.field.trickRoom};${s.field.trickRoom ? left('Trick Room') : 5}`, 'false'].join('/');
   return { state: `${ours.text}/${theirs.text}/${field}`, ourTeam: ours.team };
 }
