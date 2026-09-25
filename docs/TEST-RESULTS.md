@@ -1998,3 +1998,19 @@ Tests: 408 pass.
 - `inference.unrevealedTypePool` carries the pool's types and abilities. The glossary line for `possible` now covers
   unrevealed Pokémon. `INSTRUCTIONS_VERSION` is `2026-09-25-audit-v6`.
 - One new test; 421 pass.
+
+## Should the search overrule guards? (2026-09-25)
+
+- **Measured.** Of 154 logged guard skips with search values, 57 went against a search lead above 0.05, 28 above 0.1
+  and 16 above 0.15. The big leads fall into three groups:
+  - **Guard bugs already fixed:** Tail Slap (`needlessGamble`), Serperior's Substitute (`futileSubstitute`).
+  - **Correct skips with a poor fallback:** Flamigo's Tera Close Combat three times, now fixed by falling back to the
+    same move without Tera; Double-Edge for a Fake Out that also knocked out, which fell to a switch; Recover at full HP.
+  - **Setup the evaluation inflates:** Shell Smash, No Retreat, Roost.
+- **Decision.** No blanket veto. It would restore Recover at full HP and redundant Teras along with the rare real
+  mistake.
+- **What changed instead.** A guard's `by`, when it names a legal move, is now the fallback after the plain twin, as
+  `prefer` is. That covers `dominatedMoves`, `lethalPriority`, the healing-over-a-knockout guard and Rest. A switch named
+  in `by` (`needlessGamble`, `preserveSoleDefensiveAnswer`) is left to the ranking: across the logs the search rated
+  another move above it in three of four cases.
+- 421 pass.

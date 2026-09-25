@@ -278,7 +278,11 @@ export class DecisionLoop {
         // A guard that names what beats the skipped move comes next: a certain knockout skipped for a Roost fell back to
         // the blend's next choice, a switch to Pachirisu, where the guard's own reason was the Knock Off (2686662572).
         const twin = action.id.endsWith('-terastallize') ? actions.find(a => a.id === action!.id.slice(0, -'-terastallize'.length)) : undefined;
-        const prefer = dominance.get(action.id)?.prefer;
+        // Several guards name the move their reason rests on in `by` (the faster knockout, the move that dominates,
+        // Rest): Double-Edge skipped for a Fake Out that also knocked out fell back to a switch (2686875558). A switch
+        // named there is left to the ranking, since the search often rated another move above it.
+        const entry = dominance.get(action.id);
+        const prefer = entry?.prefer ?? (actions.some(a => a.id === entry?.by && a.kind === 'move') ? entry!.by : undefined);
         const first = (a: BattleAction) => (a.id === twin?.id ? 2 : a.id === prefer ? 1 : 0);
         const ranked = actions.filter(a => a.id !== action!.id && !cyclic(a))
           .sort((a, b) => first(b) - first(a) || (ranking![b.id] ?? 0) - (ranking![a.id] ?? 0));
