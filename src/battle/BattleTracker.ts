@@ -495,6 +495,13 @@ export class BattleTracker {
       case '-end':
         if (pokemon) {
           delete pokemon.volatiles[effectName(second)];
+          // Protosynthesis and Quark Drive start under the stat they raise ("protosynthesisatk") and Stockpile under its
+          // layers ("stockpile2"), but each ends under its family name. Left standing, the 1.3 boost went on into every
+          // estimate and the search after the sun had gone.
+          const family = effectId(effectName(second));
+          if (['protosynthesis', 'quarkdrive', 'stockpile'].includes(family)) {
+            for (const key of Object.keys(pokemon.volatiles)) if (moveId(key).startsWith(family)) delete pokemon.volatiles[key];
+          }
           // The strike is announced on its target; the Future Sight belonged to the other side.
           if (effectId(effectName(second)) === 'futuresight') delete this.state.sides[pokemon.id.startsWith('p1') ? 'p2' : 'p1'].slotConditions.futureSight;
           if (a.includes('[partiallytrapped]') && pokemon.volatiles.partiallytrapped?.data === effectName(second)) delete pokemon.volatiles.partiallytrapped;

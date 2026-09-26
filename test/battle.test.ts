@@ -222,6 +222,21 @@ test('the battle timer is kept on for every battle we play, and never turned on 
   }
 });
 
+test('Protosynthesis, Quark Drive and Stockpile end under their family name, and take their numbered volatile with them', () => {
+  // Showdown starts "protosynthesisatk" and ends "Protosynthesis". Left standing, the boost went on into every
+  // damage estimate and the search after the sun had gone: Great Tusk's Rapid Spin did 53 where 66 was expected.
+  const t = new BattleTracker(room, 'Bot');
+  const feed = (line: string) => { for (const m of parseFrame(`>${room}\n${line}`)) t.handle(m); };
+  feed('|switch|p1a: Great Tusk|Great Tusk, L77|100/100');
+  feed('|switch|p2a: Iron Hands|Iron Hands, L81|100/100');
+  const tusk = () => t.state.sides.p1.team[0]!, hands = () => t.state.sides.p2.team[0]!;
+  feed('|-start|p1a: Great Tusk|protosynthesisatk'); feed('|-start|p2a: Iron Hands|quarkdrivespe'); feed('|-start|p2a: Iron Hands|stockpile2');
+  assert.ok(tusk().volatiles.protosynthesisatk && hands().volatiles.quarkdrivespe && hands().volatiles.stockpile2);
+  feed('|-end|p1a: Great Tusk|Protosynthesis'); feed('|-end|p2a: Iron Hands|Quark Drive'); feed('|-end|p2a: Iron Hands|Stockpile');
+  assert.deepEqual(Object.keys(tusk().volatiles), []);
+  assert.deepEqual(Object.keys(hands().volatiles), []);
+});
+
 test('copy and selected swap boosts follow actual simulator event direction', () => {
   const t = tracker();
   feed(t, '|-boost|p2a: Tusk|atk|3\n|-copyboost|p1a: Sparky|p2a: Tusk|[from] move: Psych Up');
