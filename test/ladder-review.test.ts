@@ -31,6 +31,21 @@ test('a healer that restores more than every hit is not attacked forever', () =>
   assert.equal(outhealed(decide(b)).size, 0, 'a certain knockout ends the stall, so nothing is skipped');
 });
 
+test('outhealed counts what a healer loses every turn, and leaves the moves that start that loss', () => {
+  const roster = [ours('Garganacl', 83, ['Salt Cure', 'Recover', 'Protect', 'Stealth Rock'], 'Purifying Salt', 'Leftovers', 'Water'),
+    ours('Rayquaza', 72, ['Dragon Ascent', 'Dragon Dance', 'Extreme Speed', 'Earthquake'], 'Air Lock', 'Life Orb', 'Flying')];
+  const b = battle(roster, 'Illumise', 97);
+  b.feed('|-damage|p2a: Foe|40/100');
+  for (const turn of [2, 3]) { b.feed('|move|p2a: Foe|Roost|p2a: Foe'); b.feed('|-heal|p2a: Foe|90/100'); b.feed(`|turn|${turn}`); }
+  let input = decide(b), stalled = labels(input, outhealed(input));
+  assert.ok(stalled.includes('Protect'), `the stall is recognised: ${stalled.join(', ')}`);
+  assert.ok(!stalled.includes('Salt Cure'), 'Salt Cure chips every turn after, whatever Roost heals: it breaks the stall');
+  // Badly poisoned for eight turns, Illumise loses more than half each turn: Roost's 50% no longer outpaces anything.
+  b.foe().status = 'tox'; b.foe().toxicTurns = 8;
+  input = decide(b);
+  assert.equal(outhealed(input).size, 0, 'a healer losing more each turn than it heals is not out-healing us');
+});
+
 test('a sleeper is not left in while the opponent sets up, when a switch can answer it', () => {
   // The answer must live through its entry and a second hit, or move first. Toxapex takes Darkrai's hits; Gardevoir,
   // slower and hit hard by Sludge Bomb, is sent in only to fall too, as Arcanine was to a Drifblim (2687862037).

@@ -804,9 +804,15 @@ export function outhealed(input: DecisionInput) {
   });
   if (moves.some(m => m.range?.conditionalKO === 'all-sampled-rolls')) return result;
   const best = Math.max(0, ...moves.map(m => m.range?.percentOfMaxHP[1] ?? 0));
-  if (best >= heal) return result;
+  // What they lose every turn whatever they heal, poison, Salt Cure, Leech Seed or weather, counts beside our hit: a
+  // healer badly poisoned is losing the loop long before one hit outdoes its heal. Taken at its most, so an unknown
+  // Leftovers never makes a stall of one that is not.
+  let chip = 0;
+  try { const net = residuals(s, foe, foeSide)?.perTurnPercentOfMaxHP ?? 0; chip = Math.max(0, -(Array.isArray(net) ? net[0]! : net)); } catch { chip = 0; }
+  if (best + chip >= heal) return result;
   const bestName = moves.find(m => (m.range?.percentOfMaxHP[1] ?? -1) === best)?.move.name ?? 'our best attack';
   const ourHazards = Object.values(ours.hazards ?? {}).some(n => (n ?? 0) > 0);
+  const holds = (volatile: string) => Object.keys(foe.volatiles).some(k => id(k) === volatile);
   for (const { action, move } of moves) {
     // Knock Off breaks it only while there is an item to take: after the first hit it is one more attack.
     const takesItem = move.id === 'knockoff' && foe.item !== '';
@@ -819,11 +825,14 @@ export function outhealed(input: DecisionInput) {
     if (move.category === 'Status' && (move.flags?.heal || move.sideCondition ||
         (['defog', 'courtchange', 'tidyup'].includes(move.id) && ourHazards))) continue;
     if (notForTheDamage.has(move.id)) continue;
+    // Salt Cure and Leech Seed start a loss no heal stops, and Yawn puts the healer to sleep or out: the first of each
+    // breaks the stall. Once it is in place, another is only its hit, or fails.
+    if (['saltcure', 'leechseed', 'yawn'].includes(move.id) && !holds(move.id) && !(move.id === 'yawn' && foe.status)) continue;
     // An attack that raises the stat it hits with, at least half the time, grows with every use: Torch Song's Special
     // Attack climbs each hit until it outpaces the heal, where a plain attack never does.
     const attackingStat = move.category === 'Physical' ? 'atk' : 'spa';
     if ((move.secondaries ?? []).some(e => (e.chance ?? 100) >= 50 && ((e.self?.boosts as Record<string, number> | undefined)?.[attackingStat] ?? 0) > 0)) continue;
-    result.set(action.id, { by: 'stall', reason: `${foe.species} has healed ${healed} times against ${me.species}, and each heal restores ${heal}% while our best hit, ${bestName}, does at most ${best}%; ${move.name} cannot outpace that, so switch or break the stall instead` });
+    result.set(action.id, { by: 'stall', reason: `${foe.species} has healed ${healed} times against ${me.species}, and each heal restores ${heal}% while our best hit, ${bestName}, does at most ${best}%${chip ? `, with ${Math.round(chip)}% a turn it loses anyway` : ''}; ${move.name} cannot outpace that, so switch or break the stall instead` });
   }
   return result;
 }
