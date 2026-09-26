@@ -2474,8 +2474,11 @@ overruling the search, or a guard's fallback. Four fixes:
   freeKnockoutPassedUp (14 skips in 9 games, 3–6, by 0.071 of search score) and savingTheDoomed (9 skips in 7 games,
   4–3). Twenty-three games cannot separate these from luck; a self-play A/B can.
 
-## Self-play: the guards added since audit-v11 are neutral (2026-09-26)
+## Self-play: the guards added since audit-v11 are neutral (2026-09-26) — invalid, both sides were the same bot
 
+- **Invalid.** BattleManager passed only `guards: false` on to the decision loop, so the `skipGuards` side (A) played
+  with every guard, like B. The 50.5% is two identical bots, and says nothing about these guards. See "Bench
+  settings never reached the decision loop" below.
 - `newguards` compared the current bot (B) with the same bot without freeKnockoutPassedUp, savingTheDoomed and
   losingHealLoop (A). Both sides searched with 16 worlds × 200 ms and no Jev, over 100 seeds played both ways.
 - B won 101 of 200 = 50.5% [95% 43.6–57.4%], about 3 Elo. Sweeps were 20 to 19, with 61 split pairs.
@@ -2486,8 +2489,10 @@ overruling the search, or a guard's fallback. Four fixes:
   sleep rule, and the tracker fixes. The tracker fixes are corrections, and the Illusion misread (audit-v17) cost one
   of those games outright.
 
-## Self-play: the full-HP heal exception and the sleep rule are neutral (2026-09-26)
+## Self-play: the full-HP heal exception and the sleep rule are neutral (2026-09-26) — invalid, both sides were the same bot
 
+- **Invalid**, for the same reason: the `extraGuards` side (A) never got its extra rules, so 49.5% is two identical
+  bots.
 - `healsleep` put the current bot (B) against the same bot with the pre-audit-v12/v13 rules added back (A):
   every heal at full HP skipped, and every move of a sleeper that cannot wake skipped. It was 100 seeds played both
   ways, with no Jev.
@@ -2578,3 +2583,21 @@ overruling the search, or a guard's fallback. Four fixes:
   and Strength Sap. Of the 11 with a recorded result we won 7 and lost 4; one loss was to cobblemon_eclipse
   (2687731014, Zapdos out of Roost). PP running out is not costing games, so we are not budgeting PP over longer
   spans.
+
+## Fitted weights: stopped at 172 games, the current weights stay (2026-09-26)
+
+- The `fitted` bench played the weights fitted on the `defence` positions (B) against the current ones (A). It was
+  stopped after 172 games with the fitted weights on 47.1% [95% about 39.8–54.5%], about −20 Elo. They had to win to be
+  deployed, and they were behind; `logs/weights/fitted-bench.txt` is not used.
+- That bench is valid: the weights reach the search through its own options, not through BattleManager (below).
+- With that run over, the engine built with Body Press scoring is the one the bot uses: `npm run build:engine` builds
+  it in `target`, and a restart picks it up.
+
+## Bench settings never reached the decision loop (2026-09-26)
+
+- BattleManager passed only `guards: false` on to DecisionLoop. A bench side with `skipGuards` or `extraGuards` kept
+  every guard, and one with `planning: false` still planned, so each played exactly the bot on the other side. This
+  has been so since `skipGuards` was added (ec57f09), and it makes the `newguards` (50.5%) and `healsleep` (49.5%)
+  results above meaningless. Both entries are marked invalid.
+- The settings are now passed on as given, and a test checks that `planning: false` and a guard list reach the loop.
+- Benches that changed only search settings, including worlds, time and weights, were not affected.
