@@ -15,7 +15,7 @@
 // (worlds, msPerWorld, weights, ...) come from B and are used by both sides, since only the policy is compared. Every
 // divergence and every game go to logs/divergence/<name>.jsonl; rerunning with the same name resumes. A run with A the
 // same as B must find no divergences at all: any it finds mean the policy is not reproducible, and nothing else holds.
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { availableParallelism } from 'node:os';
@@ -223,11 +223,14 @@ async function play(seed) {
       }
     })();
   });
-  tasks.push((async () => { for await (const _chunk of streams.omniscient) { /* drain */ } })());
+  // In audit mode each game's full log is kept beside the results, so a miss can be traced turn by turn.
+  const log = [];
+  tasks.push((async () => { for await (const chunk of streams.omniscient) if (args.audit) log.push(chunk); })());
   try {
     await streams.omniscient.write(`>start ${JSON.stringify({ formatid: 'gen9randombattle', seed: [seed, 2, 3, 4] })}\n` +
       `>player p1 ${JSON.stringify({ name: names.p1, seed: [seed, 11, 22, 33] })}\n>player p2 ${JSON.stringify({ name: names.p2, seed: [seed, 44, 55, 66] })}`);
     await Promise.race([Promise.all(tasks), failure]);
+    if (args.audit) { mkdirSync(`logs/divergence/${args.name}`, { recursive: true }); writeFileSync(`logs/divergence/${args.name}/${seed}.log`, log.join('\n')); }
     return { game: true, seed, winner: winner ?? 'tie', turns, seconds: Math.round((Date.now() - started) / 1000), ...stats };
   } catch (e) {
     return { game: true, seed, winner: 'error', error: String(e.message ?? e), turns, seconds: Math.round((Date.now() - started) / 1000), ...stats };
