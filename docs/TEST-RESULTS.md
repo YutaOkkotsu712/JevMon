@@ -2473,3 +2473,15 @@ overruling the search, or a guard's fallback. Four fixes:
   barely fired: losingHealLoop never, the tightened asleepWhileTheyBoost once. The most active overrides were
   freeKnockoutPassedUp (14 skips in 9 games, 3–6, by 0.071 of search score) and savingTheDoomed (9 skips in 7 games,
   4–3). Twenty-three games cannot separate these from luck; a self-play A/B can.
+
+## Self-play: the guards added since audit-v11 are neutral (2026-09-26)
+
+- `newguards` compared the current bot (B) with the same bot without freeKnockoutPassedUp, savingTheDoomed and
+  losingHealLoop (A). Both sides searched with 16 worlds × 200 ms and no Jev, over 100 seeds played both ways.
+- B won 101 of 200 = 50.5% [95% 43.6–57.4%], about 3 Elo. Sweeps were 20 to 19, with 61 split pairs.
+- These guards are not what cost the ladder games since audit-v11 (7 won of 23, against 11.8 expected). A regression
+  of the ~150 Elo that slump would imply would have shown here. They stay; neither is measurably good or bad in
+  self-play.
+- What the bench cannot see is their interaction with Jev, and the non-guard changes: the full-HP heal exemption, the
+  sleep rule, and the tracker fixes. The tracker fixes are corrections, and the Illusion misread (audit-v17) cost one
+  of those games outright.
