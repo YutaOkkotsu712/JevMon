@@ -65,6 +65,7 @@ define_enum_with_from_str! {
         KEBIABERRY,
         LEFTOVERS,
         LIFEORB,
+        LIGHTCLAY,
         LUSTROUSORB,
         LUSTROUSGLOBE,
         METALCOAT,

@@ -92,7 +92,8 @@ export interface SideState {
   team: PokemonState[];
   activeId: string | null;
   hazards: Record<string, number>;
-  conditions: Record<string, { sinceTurn: number }>;
+  /** `turns` is how long it lasts when not the usual five: a screen from a Light Clay holder lasts eight. */
+  conditions: Record<string, { sinceTurn: number; turns?: number }>;
   /**
    * Recovery waiting on this side's slot. A Wish heals whoever occupies the slot when it lands, which is
    * what makes passing it possible; a Healing Wish restores whatever comes in after its user faints.

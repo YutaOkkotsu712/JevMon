@@ -184,10 +184,11 @@ function side(s: BattleState, sideId: SideId, known: boolean, world: World, lega
   const count = (name: string) => Object.entries(v.hazards).find(([k]) => id(k) === name)?.[1] ?? 0;
   // Timed effects go in with the turns they have left. Written as if just started, a Reflect about to end read five
   // turns, a Yawn due to put us to sleep this turn read a turn away, and Slow Start at 0 counted down past zero and
-  // never ended. An effect started before turn 1, on the leads' entry, has seen no end of turn by turn 1.
+  // never ended. An effect started before turn 1, on the leads' entry, has seen no end of turn by turn 1. A Light Clay
+  // screen lasts eight: counted from five, every screen looked three turns shorter than it was.
   const turns = (name: string, total = 5) => {
     const entry = Object.entries(v.conditions).find(([k]) => id(k) === name);
-    return entry ? Math.max(1, total - elapsed(s, entry[1].sinceTurn)) : 0;
+    return entry ? Math.max(1, (entry[1].turns ?? total) - elapsed(s, entry[1].sinceTurn)) : 0;
   };
   // The consecutive-Protect count is what makes a repeated Protect fail; leaving it at zero had the search voting
   // for a third Protect as if it always worked.

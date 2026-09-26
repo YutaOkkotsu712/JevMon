@@ -375,7 +375,13 @@ export class BattleTracker {
       case '-sidestart': case '-sideend': {
         const effect = effectName(second), limit = hazardLimits[effect];
         if (side) {
-          if (message.type === '-sidestart') side.conditions[effect] ??= { sinceTurn: this.state.turn };
+          if (message.type === '-sidestart') {
+            // Light Clay makes a screen last eight turns, and every Random Battle screen setter carries one. The setter is
+            // the side's active Pokémon; only an item known to be something else leaves the usual five.
+            const setter = side.team.find(p => p.id === side.activeId);
+            const clay = ['reflect', 'lightscreen', 'auroraveil'].includes(moveId(effect)) && (setter?.item == null || moveId(setter.item) === 'lightclay');
+            side.conditions[effect] ??= { sinceTurn: this.state.turn, ...(clay ? { turns: 8 } : {}) };
+          }
           else delete side.conditions[effect];
         }
         if (side && limit) side.hazards[effect] = message.type === '-sideend' ? 0 : Math.min(limit, (side.hazards[effect] ?? 0) + 1);

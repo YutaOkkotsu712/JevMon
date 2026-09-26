@@ -621,11 +621,29 @@ fn generate_instructions_from_side_conditions(
     incoming_instructions: &mut StateInstructions,
 ) {
     match side_condition.condition {
+        // A screen from a Light Clay holder lasts eight turns. Every Random Battle screen setter carries one.
         PokemonSideCondition::AuroraVeil
         | PokemonSideCondition::LightScreen
-        | PokemonSideCondition::Reflect
-        | PokemonSideCondition::Safeguard
-        | PokemonSideCondition::Mist => {
+        | PokemonSideCondition::Reflect => {
+            let duration = if state
+                .get_side_immutable(attacking_side_reference)
+                .get_active_immutable()
+                .item
+                == Items::LIGHTCLAY
+            {
+                8
+            } else {
+                SIDE_CONDITION_DURATION
+            };
+            generate_instructions_from_duration_side_conditions(
+                state,
+                side_condition,
+                attacking_side_reference,
+                incoming_instructions,
+                duration,
+            );
+        }
+        PokemonSideCondition::Safeguard | PokemonSideCondition::Mist => {
             generate_instructions_from_duration_side_conditions(
                 state,
                 side_condition,

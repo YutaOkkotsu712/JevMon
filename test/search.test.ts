@@ -528,6 +528,15 @@ test('timed effects reach the engine with the turns they have left', () => {
   assert.equal(two[9]!.split(';')[2], '1');
 });
 
+test('a screen from a Light Clay holder lasts eight turns, and every Random Battle screen setter holds one', () => {
+  const b = battleFor([ourRow('Grimmsnarl', 83, ['Reflect', 'Light Screen', 'Spirit Break', 'Thunder Wave'], 'Prankster', 'Light Clay', 'Steel')], 'Dragonite', 80);
+  b.feed('|turn|2');
+  b.feed('|-sidestart|p1: Test Bot|Reflect'); b.feed('|-sidestart|p2: Foe|move: Light Screen'); b.feed('|turn|4');
+  const [ours, theirs] = engineStateOf(b.state, 'p1', worldOf(b.state, 'p1', () => 0.5)).state.split('/');
+  assert.equal(ours!.split('=')[7]!.split(';')[10], '6', 'our Light Clay Reflect from turn 2 has six turns left on turn 4, not three');
+  assert.equal(theirs!.split('=')[7]!.split(';')[3], '6', 'an opposing setter\'s unknown item is the Light Clay every screen setter carries');
+});
+
 test('the hits a Pokémon has taken reach the engine, for Rage Fist', () => {
   // The engine's Rage Fist was a flat 50 base power; it gains 50 for every hit its user has taken, up to 350.
   const b = battleFor([ourRow('Annihilape', 76, ['Rage Fist', 'Drain Punch', 'Bulk Up', 'Gunk Shot'], 'Defiant', 'Leftovers', 'Water')], 'Cobalion', 80);
