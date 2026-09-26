@@ -67,6 +67,34 @@ export function solveMatrixGame(cells: number[], rows: number, cols: number, ite
   return { row, col, payoff, value: row.reduce((acc, p, i) => acc + p * payoff[i]!, 0) };
 }
 
+/**
+ * Our equilibrium strategy with its exact ties broken by their other replies. When one reply of theirs decides the turn
+ * whatever we do, our actions are worth the same against it, and regret matching keeps whichever led while their
+ * strategy was still settling: Amoonguss, last on the field, used Sludge Bomb on a Tera Steel Rabsca about to knock it
+ * out with Psychic, because Sludge Bomb was best against a switch to Cacturne that Rabsca had no reason to make
+ * (2688230787). Only actions that score the same against every reply they play are merged, so a mixed equilibrium, where
+ * the tie is what keeps us unpredictable, is left alone. The merged weight is shared out by the game left if they do not
+ * play those replies: the merged actions against their others, solved the same way.
+ */
+export function refineTies(cells: number[], rows: number, cols: number, game: ReturnType<typeof solveMatrixGame>, epsilon = 1) {
+  const cell = (i: number, j: number) => cells[i * cols + j]!;
+  const support = game.col.flatMap((q, j) => (q > 0.02 ? [j] : []));
+  const others = Array.from({ length: cols }, (_, j) => j).filter(j => !support.includes(j));
+  if (!support.length || !others.length) return game.row;
+  const row = [...game.row];
+  const left = new Set(Array.from({ length: rows }, (_, i) => i));
+  for (const i of [...left]) {
+    if (!left.has(i)) continue;
+    const same = [...left].filter(k => support.every(j => Math.abs(cell(k, j) - cell(i, j)) <= epsilon));
+    for (const k of same) left.delete(k);
+    if (same.length < 2) continue;
+    const rest = solveMatrixGame(same.flatMap(k => others.map(j => cell(k, j))), same.length, others.length);
+    const mass = same.reduce((acc, k) => acc + row[k]!, 0);
+    same.forEach((k, n) => { row[k] = mass * rest.row[n]!; });
+  }
+  return row;
+}
+
 /** The engine's MCTS turns an evaluation into a win estimate this way; the solver's payoffs are put on the same scale. */
 const sigmoid = (x: number) => 1 / (1 + Math.exp(-0.0125 * x));
 
@@ -156,12 +184,13 @@ export async function searchWorlds(state: BattleState, actions: BattleAction[], 
       const m = await solveWorld(options.bin, engineState, endgame.msPerWorld, options.weights);
       if (!m) return;
       const game = solveMatrixGame(m.cells, m.ours.length, m.theirs.length);
+      const row = refineTies(m.cells, m.ours.length, m.theirs.length, game);
       solved++;
       for (const [actionId, name] of names) {
         const i = m.ours.indexOf(name ?? '');
         if (i < 0) continue;
         const t = totals.get(actionId) ?? { share: 0, payoff: 0, worlds: 0 };
-        t.share += game.row[i]!; t.payoff += game.payoff[i]! - game.value; t.worlds++;
+        t.share += row[i]!; t.payoff += game.payoff[i]! - game.value; t.worlds++;
         totals.set(actionId, t);
       }
     });

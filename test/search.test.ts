@@ -434,7 +434,7 @@ test('a guard that names what beats the skipped move falls back to it, not to th
   assert.match(records[0]!.skippedDominatedMove!.reason, /Earthquake knocks Darkrai out at every sampled roll/);
 });
 
-import { parseMatrix, solveMatrixGame, searchTimeoutMs } from '../src/search/search.js';
+import { parseMatrix, refineTies, solveMatrixGame, searchTimeoutMs } from '../src/search/search.js';
 
 test('the endgame solver reads the engine matrix and solves the root as a simultaneous game', () => {
   const m = parseMatrix('side one options: closecombat,uturn\nside two options: iciclecrash,highhorsepower\nmatrix: 10.00,-5.00,2.00,3.00\nchoice: uturn\nevaluation: 2\n');
@@ -450,6 +450,30 @@ test('the endgame solver reads the engine matrix and solves the root as a simult
   // Matching pennies with a bias: worst-case play would pick the safe row, the equilibrium mixes.
   const mixed = solveMatrixGame([3, -1, -1, 1], 2, 2);
   assert.ok(mixed.row[0]! > 0.2 && mixed.row[0]! < 0.5, `mixed strategy, got ${mixed.row[0]}`);
+});
+
+test('an endgame tie that one reply of theirs forces is broken by their other replies', () => {
+  // Amoonguss, last on the field, against a faster Tera Steel Rabsca at 14% (2688230787, depth 1). Psychic knocks
+  // Amoonguss out whatever it does; Sludge Bomb is best only if Rabsca switches to Cacturne, the worst reply it has.
+  const cells = [-79.48, -144.26, -74.91, -22.72, -93.70, -144.26, -89.13, 37.21, -93.70, -144.26, -89.13, -3.05, -68.70, -144.26, -65.04, -43.70];
+  const moves = ['Giga Drain', 'Sludge Bomb', 'Clear Smog', 'Spore'];
+  const game = solveMatrixGame(cells, 4, 4);
+  assert.ok(game.col[1]! > 0.95, 'Rabsca plays Psychic');
+  const top = (row: number[]) => moves[row.indexOf(Math.max(...row))];
+  assert.equal(top(game.row), 'Sludge Bomb', 'regret matching alone keeps the early leader');
+  const row = refineTies(cells, 4, 4, game);
+  assert.equal(top(row), 'Spore', 'if Rabsca does not use Psychic, Spore does most');
+  assert.ok(Math.abs(row.reduce((a, b) => a + b, 0) - 1) < 1e-6, 'still a strategy');
+  // Five turns deep, against Spore Rabsca would rather switch to Cacturne, where Sludge Bomb is best: the game left is
+  // solved, not answered move by move, so it stays mostly Spore.
+  const deep = [-384.41, -444.26, -334.41, -80.97, -394.26, -444.26, -344.26, -72.24, -394.26, -444.26, -344.26, -169.44, -125.16, -444.26, -150.66, -210.09];
+  const deepRow = refineTies(deep, 4, 4, solveMatrixGame(deep, 4, 4));
+  assert.equal(top(deepRow), 'Spore', `mostly Spore: ${deepRow.map(p => p.toFixed(2))}`);
+  // A mixed equilibrium is tied on purpose and stays mixed; a dominant row is untouched.
+  const rps = solveMatrixGame([0, -1, 1, 1, 0, -1, -1, 1, 0], 3, 3);
+  assert.deepEqual(refineTies([0, -1, 1, 1, 0, -1, -1, 1, 0], 3, 3, rps), rps.row);
+  const dominant = solveMatrixGame([5, 4, 1, 0], 2, 2);
+  assert.deepEqual(refineTies([5, 4, 1, 0], 2, 2, dominant), dominant.row);
 });
 
 test('the search timeout covers the extra pass or the endgame, whichever is longer', () => {

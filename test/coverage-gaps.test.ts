@@ -687,6 +687,31 @@ test('a heal that cannot keep up is not taken over a certain knockout', () => {
   assert.equal(healingOverAKnockout({ state: quiet.state, legalActions: generateLegalActions(request), request }).size, 0);
 });
 
+test('a heal after their hit restores from the lower HP, and a recoil knockout is not a free one', () => {
+  // Ho-Oh at 56%, slower than a burned +1 Annihilape at 35% that has taken two hits (2688231548).
+  const roster = [ours('Ho-Oh', 71, ['Brave Bird', 'Recover', 'Earthquake', 'Sacred Fire'], 'Regenerator', 'Heavy-Duty Boots', 'Ground')];
+  const setup = (hpPercent: number, moves?: string[]) => {
+    const team = moves ? [ours('Ho-Oh', 71, moves, 'Regenerator', 'Heavy-Duty Boots', 'Ground')] : roster;
+    const b = battle(team, 'Annihilape', 76);
+    const hp = Math.round(team[0]!.maxHP * hpPercent / 100);
+    b.feed('|move|p2a: Foe|Rage Fist|p1a: Ho-Oh'); b.feed(`|-damage|p1a: Ho-Oh|${hp}/${team[0]!.maxHP}`);
+    b.feed('|-damage|p2a: Foe|35/100'); b.feed('|-status|p2a: Foe|brn'); b.feed('|-boost|p2a: Foe|atk|1'); b.feed('|turn|18');
+    b.foe().hitsTaken = 2;
+    b.feed(b.request(18, hp));
+    const request = parseChoiceRequest(JSON.stringify(b.payload(18, hp)))!;
+    const input = { state: b.state, legalActions: generateLegalActions(request), request };
+    const hit = incomingThreats(b.state, b.me(), 'p1', 8)!.damagingMoves.find(m => m.move === 'Rage Fist')!.percentOfMaxHP;
+    return { input, hit, skipped: [...healingOverAKnockout(input).keys()].map(k => input.legalActions.find(a => a.id === k)!.label) };
+  };
+  const { hit, skipped } = setup(56);
+  assert.ok(hit[0] > 43.7 && hit[0] < 50, `Rage Fist's least is more than the 43.7% Recover has room for, less than its 50%: ${hit}`);
+  assert.deepEqual(skipped, [], 'Recover comes after Rage Fist and puts back all 50%, more than the hit');
+  // With Brave Bird the only knockout, its recoil after Rage Fist costs Ho-Oh too, so it does not count as a free one.
+  const reckless = setup(30, ['Brave Bird', 'Recover']);
+  assert.ok(reckless.hit[0] > 30, 'Rage Fist would knock a 30% Ho-Oh out anyway');
+  assert.deepEqual(reckless.skipped, [], 'no free knockout to insist on');
+});
+
 import { datasetSpeciesId } from '../src/pokemon/data.js';
 
 test('a forme the set pools do not list takes its base species\' sets', () => {

@@ -2723,3 +2723,36 @@ ceiling, all from 77eb20c.
   action is now always eligible; the rule still keeps Jev from pulling toward what the search rates far lower.
 - Averaging each world's own mean did no better than pooling on the same positions (3 to 4), so the estimate is
   unchanged.
+
+## Six ladder losses reviewed with the full logs (2026-09-26)
+
+Battles 2688221733, 2688230787, 2688231548 and 2688232772 (all losses), with 2688091405 (a win) for its three immune
+moves. `scripts/explain-turns.mjs` prints any turns of a logged battle in full, and `npm run review` now says why a move
+did nothing.
+
+- **Every immune move was the opponent's read.** All six (Thunderbolt into Glaceon and into Landorus twice,
+  Earthquake into Landorus, Sludge Bomb into Rabsca, Body Press into Drifblim) hit a Pokémon that switched in on the
+  move or Terastallized that turn. None was chosen into a type already on the field.
+- **`healingOverAKnockout` skipped a Recover it should not have.** Ho-Oh at 56%, slower than a burned +1 Annihilape
+  at 35%: the guard held Recover to the 43.7% Ho-Oh had room for, below Rage Fist's least 44.4%, and forced Brave
+  Bird. Annihilape moved first, so Recover would have come after the hit and restored all 50%; and the recoil after
+  Rage Fist knocked Ho-Oh out too. The heal is now measured after their hit unless we surely move first, and a knockout
+  with recoil, crash damage or a self-knockout no longer counts as free unless we surely move first. On the logged
+  position the guard now skips nothing.
+- **The endgame solver broke exact ties on a reply the opponent would never make.** Amoonguss, last on the field,
+  used Sludge Bomb on a Tera Steel Rabsca at 14%. Psychic knocked Amoonguss out whatever it did, so every move tied
+  against it, and regret matching kept Sludge Bomb, which led early only because it was best against a switch to
+  Cacturne. Actions that score the same against every reply the opponent plays are now shared out by the game left over
+  their other replies; a mixed equilibrium, tied on purpose, is left alone. Rerun on the logged turn: Spore 91%, from
+  Sludge Bomb 81%. The game was lost either way.
+- **Looked at and left alone.**
+  - Clawitzer at 41% sacrificed to Rhydon's Earthquake for a free Amoonguss (2688230787). Amoonguss does not resist
+    Ground, and would have lost 55–65% switching in.
+  - Duraludon taking a Liquidation from a Shell Smash Drednaw (2688232772). Nothing on the team outsped it afterwards.
+  - Granbull's Encore and Thunder Wave never used against a Nasty Plot Girafarig (2688221733). The search rejected
+    the switch at 16 × 200 ms and 32 × 1.5 s alike; the line pays off only several turns later, past its horizon.
+  - Turn 13 of 2688221733, a locked Thunderbolt into a Glaceon that Terastallized Ground: the engine's Glaceon takes
+    the Tera in 86% of its visits in those worlds, and staying scored about the same as switching.
+- Of 160 decisions across the five battles, 7 played something the search rated 0.03 or more below its best: 4
+  through the blend with Jev, 2 by guards (the Ho-Oh one, fixed above, and a Giga Drain knockout over Spore, which was
+  right), and 1 where the search's most-visited action was not its best-scored.

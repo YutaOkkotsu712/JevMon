@@ -718,10 +718,12 @@ export function statusThatHelpsThem(input: DecisionInput) {
  * survive, Moonblast removes Keldeo now, while the heal only returns us to the same choice a turn later, with no more
  * HP, after another attack.
  *
- * Narrow: an offered move that cannot miss knocks their active out at every sampled roll; the heal restores a fixed
- * amount now (Recover, Roost, Moonlight and the like; not Rest, Wish, Strength Sap or Pain Split) and has no more
- * priority than that move; and the smallest roll of their strongest revealed attack on us is at least what the heal
- * would restore from here. Draining attacks deal damage, so they are left alone.
+ * Narrow: an offered move that cannot miss knocks their active out at every sampled roll, and costs us nothing (no
+ * recoil, crash or self-knockout) unless we surely move first; the heal restores a fixed amount now (Recover, Roost,
+ * Moonlight and the like; not Rest, Wish, Strength Sap or Pain Split) and has no more priority than that move; and the
+ * smallest roll of their strongest revealed attack on us is more than the heal would restore. Unless we surely move
+ * first, the heal comes after their hit, so it restores from the HP that hit leaves. Draining attacks deal damage, so
+ * they are left alone.
  */
 export function healingOverAKnockout(input: DecisionInput) {
   const result = new Map<string, { by: string; reason: string }>();
@@ -739,6 +741,10 @@ export function healingOverAKnockout(input: DecisionInput) {
   const knockouts = input.legalActions.filter(a => a.kind === 'move').map(a => ({ action: a, move: moveOf(a) }))
     .filter(({ action, move }) => {
       if (!move.exists || move.category === 'Status' || hitChancePercent(move.name, s.field.weather, me, foe) < 100) return false;
+      // A knockout paid for with our own Pokémon is not the free one this rests on. Ho-Oh at 56% was sent into Brave Bird
+      // on a 35% Annihilape; Rage Fist came first, and the recoil knocked Ho-Oh out as well (2688231548).
+      if ((move.recoil || move.mindBlownRecoil || move.selfdestruct || move.hasCrashDamage) &&
+        turnOrder(s, me, move.name)?.order !== 'ours-first') return false;
       const range = damageRange(s, move.name, tera(action));
       return range?.conditionalKO === 'all-sampled-rolls' && (range.coveredProbabilityMass ?? 1) >= 0.999;
     });
@@ -754,9 +760,12 @@ export function healingOverAKnockout(input: DecisionInput) {
     const move = moveOf(action);
     const heal = healPercentNow(move.name, s.field.weather);
     if (heal === undefined || (movePriority(s, me, move.name) ?? Infinity) > fastest) continue;
-    // At full HP a heal restores nothing, which the move's own report already says.
-    const restores = Math.round(Math.min(heal, room) * 10) / 10;
-    if (restores <= 0 || strongest.percentOfMaxHP[0] < restores) continue;
+    // At full HP, moving first, a heal restores nothing, which the move's own report already says. After their hit it
+    // has that much more room: Recover at 56% was held to 43.7% against Rage Fist's 44.4%, when Annihilape moved first and Recover
+    // would have put back its full 50% (2688231548).
+    const after = turnOrder(s, me, move.name)?.order === 'ours-first' ? room : room + strongest.percentOfMaxHP[0];
+    const restores = Math.round(Math.min(heal, after) * 10) / 10;
+    if (restores <= 0 || strongest.percentOfMaxHP[0] <= restores) continue;
     // A heal that comes with a Tera can be a survival play: Decidueye-Hisui's Roost + Tera Water turned Lunala's
     // Psyshock from a knockout into a hit it lived through, and the knockout offered instead never got to move.
     const withTera = action.command.endsWith(' terastallize') ? input.request?.active?.[0]?.canTerastallize : undefined;
