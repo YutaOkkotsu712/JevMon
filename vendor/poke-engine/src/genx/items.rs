@@ -1,9 +1,11 @@
 #![allow(unused_variables)]
-use super::abilities::Abilities;
+use super::abilities::{sheer_force_boosts, Abilities};
 use super::damage_calc::type_effectiveness_modifier;
 use super::generate_instructions::{apply_boost_instruction, immune_to_status};
 use super::state::Terrain;
-use crate::choices::{Choice, Choices, Effect, MoveCategory, MoveTarget, Secondary, StatBoosts};
+use crate::choices::{
+    Choice, Choices, Effect, MoveCategory, MoveTarget, Secondary, StatBoosts, MOVES,
+};
 use crate::define_enum_with_from_str;
 use crate::engine::generate_instructions::add_remove_status_instructions;
 use crate::instruction::{
@@ -1292,8 +1294,18 @@ pub fn item_modify_attack_being_used(
                     });
                 }
 
+                // A move Sheer Force boosted has no secondary effects left, and Life Orb's recoil goes with them.
+                // The move's own entry says, since the ability has already cleared them from this choice.
                 #[cfg(not(feature = "gen4"))]
-                if attacking_side.get_active_immutable().ability != Abilities::MAGICGUARD {
+                let sheer_force = attacking_side.get_active_immutable().ability
+                    == Abilities::SHEERFORCE
+                    && MOVES
+                        .get(&attacking_choice.move_id)
+                        .is_some_and(sheer_force_boosts);
+                #[cfg(not(feature = "gen4"))]
+                if attacking_side.get_active_immutable().ability != Abilities::MAGICGUARD
+                    && !sheer_force
+                {
                     attacking_choice.add_or_create_secondaries(Secondary {
                         chance: 100.0,
                         effect: Effect::Heal(-0.1),

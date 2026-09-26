@@ -2125,6 +2125,17 @@ pub fn ability_on_switch_in(
     }
 }
 
+/// Whether Sheer Force boosts this move and takes its secondary effects: it has secondaries, or a volatile status
+/// other than a trap, a rampage lock or Smack Down.
+pub fn sheer_force_boosts(choice: &Choice) -> bool {
+    let volatile = choice.volatile_status.as_ref().is_some_and(|v| {
+        v.volatile_status != PokemonVolatileStatus::PARTIALLYTRAPPED
+            && v.volatile_status != PokemonVolatileStatus::LOCKEDMOVE
+            && v.volatile_status != PokemonVolatileStatus::SMACKDOWN
+    });
+    choice.secondaries.is_some() || volatile
+}
+
 pub fn ability_modify_attack_being_used(
     state: &State,
     attacker_choice: &mut Choice,
@@ -2534,17 +2545,7 @@ pub fn ability_modify_attack_being_used(
             }
         }
         Abilities::SHEERFORCE => {
-            let mut sheer_force_volatile_boosted = false;
-            if let Some(attacker_volatile_status) = &attacker_choice.volatile_status {
-                if attacker_volatile_status.volatile_status
-                    != PokemonVolatileStatus::PARTIALLYTRAPPED
-                    && attacker_volatile_status.volatile_status != PokemonVolatileStatus::LOCKEDMOVE
-                    && attacker_volatile_status.volatile_status != PokemonVolatileStatus::SMACKDOWN
-                {
-                    sheer_force_volatile_boosted = true;
-                }
-            }
-            if attacker_choice.secondaries.is_some() || sheer_force_volatile_boosted {
+            if sheer_force_boosts(attacker_choice) {
                 attacker_choice.base_power *= 1.3;
                 attacker_choice.secondaries = None;
                 attacker_choice.volatile_status = None

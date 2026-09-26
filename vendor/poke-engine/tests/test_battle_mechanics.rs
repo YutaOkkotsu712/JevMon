@@ -16194,6 +16194,32 @@ fn test_lifeorb_boost_and_recoil() {
 }
 
 #[test]
+fn test_no_lifeorb_recoil_when_sheer_force_boosts_the_move() {
+    // Self-play: a Sheer Force Life Orb Cetitan's Icicle Crash was charged a tenth of its HP it never lost.
+    let recoil_on_side_one = |move_used: Choices| {
+        let mut state = State::default();
+        state.side_one.get_active().item = Items::LIFEORB;
+        state.side_one.get_active().ability = Abilities::SHEERFORCE;
+        set_moves_on_pkmn_and_call_generate_instructions(&mut state, move_used, Choices::SPLASH)
+            .iter()
+            .any(|branch| {
+                branch.instruction_list.iter().any(|i| {
+                    matches!(i, Instruction::Damage(d) if d.side_ref == SideReference::SideOne)
+                        || matches!(i, Instruction::Heal(h) if h.side_ref == SideReference::SideOne && h.heal_amount < 0)
+                })
+            })
+    };
+    assert!(
+        !recoil_on_side_one(Choices::ICICLECRASH),
+        "a flinch chance: Sheer Force takes it, and the recoil"
+    );
+    assert!(
+        recoil_on_side_one(Choices::EARTHQUAKE),
+        "no secondary effect: Life Orb's recoil stays"
+    );
+}
+
+#[test]
 fn test_no_lifeorb_recoil_with_magicguard() {
     let mut state = State::default();
     state.side_one.get_active().item = Items::LIFEORB;

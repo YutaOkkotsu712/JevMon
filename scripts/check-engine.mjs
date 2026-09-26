@@ -55,7 +55,10 @@ function truthWorld(state, ourSide, battle) {
 /** The engine's outcomes for one move pair: each branch's probability and the net HP change of each side's active. */
 const outcomes = (state, one, two) => new Promise(resolveRun => execFile(bin, ['generate-instructions', '--state', state, '-o', one, '-t', two],
   { timeout: 20_000, maxBuffer: 8 << 20 }, (error, stdout) => {
-    if (error) return resolveRun(null);
+    if (error) {
+      appendFileSync(args.out.replace(/\.jsonl$/, '.errors.jsonl'), JSON.stringify({ one, two, message: String(stdout || error.message).slice(0, 300), state }) + '\n');
+      return resolveRun(null);
+    }
     const branches = [];
     for (const block of stdout.split(/^Index: \d+$/m).slice(1)) {
       const p = Number(/Percentage: ([\d.]+)/.exec(block)?.[1] ?? 0);
@@ -71,7 +74,6 @@ const outcomes = (state, one, two) => new Promise(resolveRun => execFile(bin, ['
   }));
 
 const results = { turns: 0, checked: 0, explained: 0, unexplained: 0, engineErrors: 0, trackerDesyncs: 0 };
-const statusOf = { '': null, slp: 'slp', brn: 'brn', par: 'par', psn: 'psn', tox: 'tox', frz: 'frz' };
 /** Where the tracker's picture of both actives, as the bot searched it, differs from the simulator's. */
 function desync(state, battle) {
   const out = [];
@@ -81,7 +83,7 @@ function desync(state, battle) {
     const boosts = Object.fromEntries(Object.entries(a.boosts).filter(([, v]) => v));
     const tracked = Object.fromEntries(Object.entries(t.boosts ?? {}).filter(([, v]) => v));
     if (JSON.stringify(Object.entries(boosts).sort()) !== JSON.stringify(Object.entries(tracked).sort())) out.push({ side, what: 'boosts', tracked, real: boosts, species: a.species.name });
-    if ((t.status ?? null) !== (statusOf[a.status] ?? a.status ?? null)) out.push({ side, what: 'status', tracked: t.status, real: a.status, species: a.species.name });
+    if ((t.status || null) !== (a.status || null)) out.push({ side, what: 'status', tracked: t.status, real: a.status, species: a.species.name });
     const hp = Math.round(100 * a.hp / a.maxhp);
     if (t.hpPercent !== null && Math.abs(t.hpPercent - hp) > 1) out.push({ side, what: 'hp', tracked: t.hpPercent, real: hp, species: a.species.name });
   }
@@ -145,7 +147,8 @@ async function play(seed) {
           if (drift.length) { results.trackerDesyncs++; appendFileSync(args.out.replace(/\.jsonl$/, '.desync.jsonl'), JSON.stringify({ seed, turn: a.turn, drift }) + '\n'); }
           const one = engineName(a.action, a.state), two = engineName(b.action, b.state);
           const mine = a.state.sides.p1.team.find(p => p.id === a.state.sides.p1.activeId);
-          const info = { turn: a.turn, trackedBoosts: mine?.boosts, realBoosts: stream.battle.p1.active[0]?.boosts,
+          // Copied: the simulator's own object moves on with the turn.
+          const info = { turn: a.turn, trackedBoosts: mine?.boosts, realBoosts: { ...stream.battle.p1.active[0]?.boosts },
             p1: { move: a.action.label, species: before.p1.species, ability: before.p1.ability, item: before.p1.item },
             p2: { move: b.action.label, species: before.p2.species, ability: before.p2.ability, item: before.p2.item } };
           let engineState;
