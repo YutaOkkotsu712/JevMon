@@ -2485,3 +2485,11 @@ overruling the search, or a guard's fallback. Four fixes:
 - What the bench cannot see is their interaction with Jev, and the non-guard changes: the full-HP heal exemption, the
   sleep rule, and the tracker fixes. The tracker fixes are corrections, and the Illusion misread (audit-v17) cost one
   of those games outright.
+
+## Self-play: the full-HP heal exception and the sleep rule are neutral (2026-09-26)
+
+- `healsleep` put the current bot (B) against the same bot with the pre-audit-v12/v13 rules added back (A):
+  every heal at full HP skipped, and every move of a sleeper that cannot wake skipped. It was 100 seeds played both
+  ways, with no Jev.
+- B won 99 of 200 = 49.5% [95% 42.6–56.4%], about −3 Elo. Sweeps were 16 to 17, with 67 split pairs.
+- With `newguards` (50.5%), none of the rule changes since audit-v11 measures as a regression. The current rules stay.
