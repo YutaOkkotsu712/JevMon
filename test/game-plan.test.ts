@@ -221,18 +221,18 @@ test('tactical scoring never revives a Tera the blend held back, and keeps the b
   assert.notEqual(ranked.chosen, tera.id);
 });
 
-test('a heal is worth only what it restores below full HP, and a repeated protect mostly fails', () => {
-  const b = battle([ours('Slowbro', 84, ['Slack Off', 'Scald', 'Protect'], 'Regenerator', 'Leftovers', 'Water')], 'Great Tusk', 80);
+test('the tactical ranking puts no one-turn price on staying or switching', () => {
+  // HP lost to the next hit, entry costs and a teammate's value on arrival moved the search's near ties, and the judge
+  // found those choices worse: 9 against 2 over 26 changed decisions (scripts/divergence.mjs).
+  const b = battle([ours('Slowbro', 84, ['Slack Off', 'Scald', 'Protect'], 'Regenerator', 'Leftovers', 'Water'),
+    ours('Rillaboom', 80, ['Grassy Glide', 'Wood Hammer', 'Knock Off', 'High Horsepower'], 'Grassy Surge', 'Choice Band', 'Grass')], 'Great Tusk', 80);
   b.foe().revealedMoves = ['Headlong Rush'];
-  hp(b.me(), 95);
+  hp(b.me(), 60);
   const i = input(b, false), p = buildGamePlan(i)!;
   const base = Object.fromEntries(i.legalActions.map(a => [a.id, 0.3]));
-  const lost = (id: string) => rankTacticalChoices(i, base, 'move-2', p, []).corrections[id]?.logAdjustment ?? 0;
-  const fresh = lost('move-3');
-  b.me().consecutiveProtects = 1;
-  assert.ok(lost('move-3') < fresh, 'a second protect in a row is priced as the hit it mostly fails to block');
-  // At 95%, Slack Off restores 5 before a hit or refills after one; either way less than the whole hit is saved.
-  assert.ok(lost('move-1') <= 0);
+  const ranked = rankTacticalChoices(i, base, 'move-2', p, []);
+  assert.deepEqual(ranked.corrections, {}, 'no advice and no habits yet, so nothing is adjusted');
+  assert.equal(ranked.chosen, 'move-2');
 });
 
 test('both payload tiers retain the current plan and oversized Unicode never reaches Jev', async () => {

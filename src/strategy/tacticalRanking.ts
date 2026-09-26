@@ -1,11 +1,7 @@
 import type { DecisionInput } from '../decisions/DecisionProvider.js';
-import type { GamePlan, PokemonPlan } from './gamePlan.js';
-import { afterEntry } from './entry.js';
+import type { GamePlan } from './gamePlan.js';
 import { incomingThreats } from './threat.js';
 import { damageRange } from './damage.js';
-import { turnOrder } from './speed.js';
-import { afterTerastallizing } from './forme.js';
-import { knockoutBoosts } from './abilities.js';
 import { dex, id } from '../pokemon/data.js';
 import { healPercentNow } from '../pokemon/mechanics.js';
 import { switchPunish } from './prediction.js';
@@ -18,10 +14,9 @@ export const SOFT_GUARDS = new Set(['cyclicSwitch', 'needlessGamble', 'preserveS
   'pickedOffOnArrival', 'pivotIntoKnockout', 'savingTheDoomed', 'losingHealLoop']);
 export interface TacticalAdvice { action: string; guard: string; reason: string; alternative?: string }
 const clamp = (n: number, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, n));
-const importance = (p: PokemonPlan | undefined) => p ? clamp(0.25 + 0.45 * p.contribution + 0.2 * p.uniqueAnswers.length) : 0.25;
 
-/** Bounded adjustments to the existing ranking. No hypothetical role makes an action illegal,
- * and a strong engine value gap is protected from these approximate one-turn estimates. */
+/** Bounded adjustments to the existing ranking: soft guards, Tera and observed habits. No hypothetical role makes an
+ * action illegal, and a strong engine value gap is protected from these approximate estimates. */
 export function rankTacticalChoices(input: DecisionInput, base: Record<string, number>, chosen: string,
   plan: GamePlan | null, advice: TacticalAdvice[]) {
   const s = input.state, side = s.mySide;
@@ -51,72 +46,44 @@ export function rankTacticalChoices(input: DecisionInput, base: Record<string, n
       const attackShare = plan.opponent?.probabilities.attack ?? 0.65;
       const incoming = me.fainted ? null : incomingThreats(s, me, side, 2);
       const normalHit = incoming?.worstCasePercentOfMaxHP;
-      const danger = normalHit == null || me.hpPercent === null ? null : clamp(normalHit / Math.max(1, me.hpPercent));
-      const snowball = knockoutBoosts(foe)?.reduce((v, a) => v + (a.probability ?? 0), 0) ?? 0;
       const futureReservation = Math.max(0, ...plan.roles.filter(p => p.pokemon !== me.id).map(p => p.tera?.gain ?? 0));
       const responses = plan.opponent && plan.opponent.evidence >= 1
         ? switchPunish(s, me, side, me.knownMoves, 6)?.likelyToComeIn ?? [] : [];
+      // No one-turn price on staying or switching: HP lost to the next hit, entry hazards and damage, a teammate's value
+      // on arrival. The search plays those turns out, and these estimates only ever moved its near ties. Measured with
+      // scripts/divergence.mjs over 20 self-play games, the 26 choices they changed were worse by the judge's reckoning
+      // in 9 and better in 2, 0.009 each on average, and those involving a switch lost the most.
       for (const action of input.legalActions) {
-        if (action.uncertain || action.kind === 'revive') continue;
-        if (action.kind === 'switch') {
-          const target = ours.team.find(p => p.slot === Number(action.command.split(' ')[1]));
-          if (!target) continue;
-          const q = afterEntry(s, target, side), targetRole = plan.roles.find(p => p.pokemon === target.id);
-          const hazards = Math.max(0, (target.hpPercent ?? 0) - (q.hpPercent ?? 0));
-          const free = me.fainted || (!!input.request?.forceSwitch?.[0] && foe.lastActedTurn === s.turn);
-          const threat = free ? null : incomingThreats(s, target, side, 2);
-          const hit = threat?.worstCasePercentOfMaxHP;
-          const death = q.fainted ? 1 : hit == null || q.hpPercent === null ? 0 : clamp(hit / Math.max(1, q.hpPercent));
-          const loss = hazards / 100 + (free || hit == null ? 0 : Math.min(q.hpPercent ?? 100, hit) / 100 * attackShare);
-          const saved = free || danger === null ? 0 : danger * attackShare * (importance(role) - 0.25);
-          add(action.id, saved - loss * importance(targetRole) - death * (importance(targetRole) - 0.25) * (free ? 1 : attackShare),
-            'Current contribution saved versus hazards, entry damage and loss of the arriving teammate');
-          if (free) add(action.id, 0.4 * (targetRole?.contribution ?? 0), 'Contribution after this free entry');
-          if (snowball && !free && death >= 0.95) add(action.id, -0.25 * snowball * attackShare,
-            'This entry can feed an opposing knockout boost; a sacrifice is still allowed');
-        } else if (action.kind === 'move' && !me.fainted) {
-          const tera = action.command.endsWith(' terastallize') ? input.request?.active?.[0]?.canTerastallize : undefined;
-          const move = dex.moves.get(action.label.split(' + Tera')[0]!);
-          const d = move.category === 'Status' ? null : damageRange(s, move.name, tera);
-          const firstKO = d?.conditionalKO === 'all-sampled-rolls' && turnOrder(s, tera ? afterTerastallizing(me, tera) : me, move.name)?.order === 'ours-first';
-          const threat = tera ? incomingThreats(s, me, side, 2, tera) : incoming;
-          const hit = threat?.worstCasePercentOfMaxHP;
-          if (!firstKO && hit != null && me.hpPercent !== null) {
-            // Recovery helps only if it can occur, and only up to full HP: a heal at 90% restores 10 when it goes first
-            // and the hit lands after it. Protect's setup risks remain with search and the guards.
-            const heal = hit < me.hpPercent ? healPercentNow(move.name, s.field.weather) ?? 0 : 0;
-            const healsFirst = heal > 0 && turnOrder(s, me, move.name)?.order === 'ours-first';
-            const after = healsFirst ? Math.min(100, me.hpPercent + heal) - hit : Math.min(100, Math.max(0, me.hpPercent - hit) + heal);
-            // A protect succeeds a third as often for each one in a row before it.
-            const blocked = move.stallingMove ? (1 / 3) ** (me.consecutiveProtects ?? 0) : 0;
-            const lost = (1 - blocked) * Math.max(0, me.hpPercent - Math.max(0, after)) / 100;
-            add(action.id, -lost * (importance(role) - 0.25) * attackShare, 'HP lost from a currently useful remaining answer');
+        if (action.uncertain || action.kind !== 'move' || me.fainted) continue;
+        const tera = action.command.endsWith(' terastallize') ? input.request?.active?.[0]?.canTerastallize : undefined;
+        const move = dex.moves.get(action.label.split(' + Tera')[0]!);
+        const d = move.category === 'Status' ? null : damageRange(s, move.name, tera);
+        const threat = tera ? incomingThreats(s, me, side, 2, tera) : incoming;
+        const hit = threat?.worstCasePercentOfMaxHP;
+        if (tera && plan.teraAvailable) {
+          // Only ever a reason to keep it: a teammate whose Tera wins more against what is revealed now. The plan's
+          // own gain is a coarse race over four sampled sets, too rough to spend the once-a-battle Tera on.
+          add(action.id, 0.5 * Math.min(0, (role?.tera?.gain ?? 0) - futureReservation), 'Another living teammate gains more from the Tera against current reveals');
+          if (hit != null && normalHit != null && me.hpPercent !== null && normalHit >= me.hpPercent && hit < me.hpPercent &&
+              ((d?.percentOfMaxHP[1] ?? 0) > 0 || (healPercentNow(move.name, s.field.weather) ?? 0) > 0)) {
+            add(action.id, 0.65 * attackShare, 'Defensive Tera changes this hit from lethal to survivable and allows useful action');
+            rescues.add(action.id);
           }
-          if (tera && plan.teraAvailable) {
-            // Only ever a reason to keep it: a teammate whose Tera wins more against what is revealed now. The plan's
-            // own gain is a coarse race over four sampled sets, too rough to spend the once-a-battle Tera on.
-            add(action.id, 0.5 * Math.min(0, (role?.tera?.gain ?? 0) - futureReservation), 'Another living teammate gains more from the Tera against current reveals');
-            if (hit != null && normalHit != null && me.hpPercent !== null && normalHit >= me.hpPercent && hit < me.hpPercent &&
-                ((d?.percentOfMaxHP[1] ?? 0) > 0 || (healPercentNow(move.name, s.field.weather) ?? 0) > 0)) {
-              add(action.id, 0.65 * attackShare, 'Defensive Tera changes this hit from lethal to survivable and allows useful action');
-              rescues.add(action.id);
+        }
+        if (plan.opponent && plan.opponent.evidence >= 1) {
+          if (move.id === 'suckerpunch') add(action.id, 0.35 * (plan.opponent.probabilities.attack - 0.5),
+            'Opponent attack tendency, with uncertainty and switch/status alternatives retained');
+          if (move.boosts && move.target === 'self') add(action.id, 0.15 * plan.opponent.probabilities.recover,
+            'Observed recovery tendency can create a setup opportunity');
+          if (!tera && d && plan.opponent.likelySwitches.length) {
+            let weighted = 0, mass = 0;
+            for (const next of plan.opponent.likelySwitches) {
+              const name = theirs.team.find(p => p.id === next.pokemon)?.species;
+              const hit = responses.find(p => p.species === name)?.ourMoveDamage[move.name]?.percentOfItsMaxHP;
+              if (hit) { weighted += (hit[0] + hit[1]) / 2 * next.weight; mass += next.weight; }
             }
-          }
-          if (plan.opponent && plan.opponent.evidence >= 1) {
-            if (move.id === 'suckerpunch') add(action.id, 0.35 * (plan.opponent.probabilities.attack - 0.5),
-              'Opponent attack tendency, with uncertainty and switch/status alternatives retained');
-            if (move.boosts && move.target === 'self') add(action.id, 0.15 * plan.opponent.probabilities.recover,
-              'Observed recovery tendency can create a setup opportunity');
-            if (!tera && d && plan.opponent.likelySwitches.length) {
-              let weighted = 0, mass = 0;
-              for (const next of plan.opponent.likelySwitches) {
-                const name = theirs.team.find(p => p.id === next.pokemon)?.species;
-                const hit = responses.find(p => p.species === name)?.ourMoveDamage[move.name]?.percentOfItsMaxHP;
-                if (hit) { weighted += (hit[0] + hit[1]) / 2 * next.weight; mass += next.weight; }
-              }
-              if (mass) add(action.id, clamp((weighted / mass - (d.percentOfMaxHP[0] + d.percentOfMaxHP[1]) / 2) / 100, -1, 1) *
-                plan.opponent.probabilities.switch * 0.3, 'Damage into observed switch destinations, discounted by uncertain switch likelihood');
-            }
+            if (mass) add(action.id, clamp((weighted / mass - (d.percentOfMaxHP[0] + d.percentOfMaxHP[1]) / 2) / 100, -1, 1) *
+              plan.opponent.probabilities.switch * 0.3, 'Damage into observed switch destinations, discounted by uncertain switch likelihood');
           }
         }
       }
