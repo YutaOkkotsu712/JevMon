@@ -2820,3 +2820,9 @@ did nothing.
   run Psychic scored higher, which with Jev's vote plays Psychic); at 1,500 ms Nasty Plot scores 0.85–0.90 against
   Psychic's 0.34–0.45 in all three, a gap Jev cannot outvote. The deeper search sees the double knockout.
   `SEARCH_ENDGAME_MS=1500` costs about three seconds a decision, and only with four Pokémon or fewer left.
+- **`suckerPunchReadFailed` misfired once, now narrowed.** In 2688281898 turn 11 Bisharp, at 2% and +4, had seen one
+  Sucker Punch fail to a Darkrai's Nasty Plot. The guard steered it to Iron Head; Darkrai, faster, attacked, and Iron
+  Head never landed, where Sucker Punch would have hit first. An active that a revealed attack, or every attack they
+  might have, knocks out at every roll is now left alone: they must attack sooner or later, and priority is its only
+  way to act first. It still fires on all five repeats in 2688242787, where our Spiritomb was not in reach of a
+  knockout.

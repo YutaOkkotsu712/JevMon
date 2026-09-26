@@ -1750,7 +1750,10 @@ export function pickedOffOnArrival(input: DecisionInput) {
  *
  * Narrow: our active used Sucker Punch or Thunderclap last turn against the Pokémon still facing it, and that
  * Pokémon's own choice that turn was not an attack (a status move, a heal or a setup move). A switch brings in someone
- * new, and an attack means the move worked or was outsped, so neither counts.
+ * new, and an attack means the move worked or was outsped, so neither counts. Nor does an active that one of their
+ * revealed attacks, or every attack they might have, knocks out at every roll: they have to attack sooner or later,
+ * and priority is its only way to act first. Bisharp at 2% and +4 was steered to Iron Head against a faster Darkrai after one Nasty Plot; Darkrai attacked,
+ * and Iron Head never landed (2688281898).
  */
 export function suckerPunchReadFailed(input: DecisionInput) {
   const result = new Map<string, { by: string; reason: string }>();
@@ -1764,6 +1767,11 @@ export function suckerPunchReadFailed(input: DecisionInput) {
   if (!conditional.includes(id(me.lastMoveUsed ?? '')) || me.lastActedTurn !== s.turn - 1) return result;
   const then = s.actionHistory?.find(o => o.side === foeSide && o.turn === s.turn - 1 && o.actor === foe.id && o.facing === me.id);
   if (!then || then.kind === 'attack' || then.kind === 'switch') return result;
+  let threat; try { threat = incomingThreats(s, me, side, Infinity); } catch { threat = null; }
+  // Whichever attack they pick knocks us out: shown or not, it is coming.
+  const attacks = threat?.damagingMoves ?? [];
+  if (attacks.some(m => m.revealed && m.conditionalKO === 'all-sampled-rolls') ||
+    (attacks.length > 0 && attacks.every(m => m.conditionalKO === 'all-sampled-rolls'))) return result;
   const what = then.kind === 'recover' ? 'to heal' : then.kind === 'setup' ? 'to set up' : 'a status move';
   const times = me.sameMoveStreak > 1 ? ` (${me.sameMoveStreak} in a row)` : '';
   for (const action of input.legalActions) {

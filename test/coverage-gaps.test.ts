@@ -716,15 +716,15 @@ import { suckerPunchReadFailed } from '../src/strategy/dominance.js';
 
 test('Sucker Punch is not clicked again into a Pokémon that just declined to attack into it', () => {
   const roster = [ours('Kingambit', 77, ['Sucker Punch', 'Kowtow Cleave', 'Iron Head', 'Swords Dance'], 'Supreme Overlord', 'Black Glasses', 'Dark')];
-  const after = (turn1: string[], turn2: string[] = []) => {
+  const after = (turn1: string[], turn2: string[] = [], hp = roster[0]!.maxHP) => {
     const b = battle(roster, 'Spiritomb', 89);
     for (const line of turn1) b.feed(line);
     b.feed('|turn|2');
     for (const line of turn2) b.feed(line);
     if (turn2.length) b.feed('|turn|3');
     const rqid = turn2.length ? 3 : 2;
-    b.feed(b.request(rqid, roster[0]!.maxHP));
-    const request = parseChoiceRequest(JSON.stringify(b.payload(rqid, roster[0]!.maxHP)))!;
+    b.feed(b.request(rqid, hp));
+    const request = parseChoiceRequest(JSON.stringify(b.payload(rqid, hp)))!;
     const input = { state: b.state, legalActions: generateLegalActions(request), request };
     const found = suckerPunchReadFailed(input);
     return { labels: [...found.keys()].map(k => input.legalActions.find(a => a.id === k)!.label), reason: [...found.values()][0]?.reason };
@@ -737,6 +737,11 @@ test('Sucker Punch is not clicked again into a Pokémon that just declined to at
   assert.deepEqual(after(['|move|p1a: Kingambit|Sucker Punch|p2a: Foe', '|-damage|p2a: Foe|60/100', '|move|p2a: Foe|Foul Play|p1a: Kingambit']).labels, []);
   // A turn of something else in between: the failure is no longer last turn's.
   assert.deepEqual(after(failed, ['|move|p1a: Kingambit|Kowtow Cleave|p2a: Foe', '|move|p2a: Foe|Will-O-Wisp|p1a: Kingambit']).labels, []);
+  // Near fainting to an attack they have shown, priority is our only way to act first, and they must attack sooner or later.
+  const low = Math.round(roster[0]!.maxHP * 0.02);
+  const hit = ['|move|p2a: Foe|Foul Play|p1a: Kingambit', `|-damage|p1a: Kingambit|${low}/${roster[0]!.maxHP}`];
+  assert.deepEqual(after(hit, failed, low).labels, [], 'a revealed Foul Play knocks a 2% Kingambit out');
+  assert.deepEqual(after(hit, failed).labels, ['Sucker Punch'], 'at full HP the same Foul Play does not, so the read stands');
 });
 
 import { datasetSpeciesId } from '../src/pokemon/data.js';
