@@ -2694,6 +2694,19 @@ pub fn ability_modify_attack_against(
                 attacker_choice.base_power /= 2.0;
             }
         }
+        // Terapagos-Terastal at full HP: every damaging hit is not very effective, exactly half, whatever its type
+        // would have been; an immunity still stands. Self-play found a Psyshock doing half what the engine expected.
+        Abilities::TERASHELL => {
+            if target_pkmn.hp == target_pkmn.maxhp
+                && attacker_choice.category != MoveCategory::Status
+            {
+                let effectiveness =
+                    type_effectiveness_modifier(&attacker_choice.move_type, target_pkmn);
+                if effectiveness > 0.0 {
+                    attacker_choice.base_power *= 0.5 / effectiveness;
+                }
+            }
+        }
         Abilities::LIGHTNINGROD => {
             if attacker_choice.move_type == PokemonType::ELECTRIC {
                 attacker_choice.remove_all_effects();

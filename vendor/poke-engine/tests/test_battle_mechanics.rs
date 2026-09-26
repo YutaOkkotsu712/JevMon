@@ -1045,7 +1045,11 @@ fn test_cheek_pouch_heals_a_third_when_a_berry_is_eaten() {
             _ => None,
         })
         .collect();
-    assert_eq!(heals, vec![25, 33], "Sitrus's quarter, then Cheek Pouch's third");
+    assert_eq!(
+        heals,
+        vec![25, 33],
+        "Sitrus's quarter, then Cheek Pouch's third"
+    );
 }
 
 #[test]
@@ -17206,6 +17210,42 @@ fn test_multiscale() {
         })],
     }];
     assert_eq!(expected_instructions, vec_of_instructions);
+}
+
+#[test]
+fn test_terashell_makes_every_hit_at_full_hp_not_very_effective() {
+    let damage = |hp: i16, attack: Choices| {
+        let mut state = State::default();
+        state.side_two.get_active().ability = Abilities::TERASHELL;
+        state.side_two.get_active().hp = hp;
+        let branches =
+            set_moves_on_pkmn_and_call_generate_instructions(&mut state, attack, Choices::SPLASH);
+        branches[0]
+            .instruction_list
+            .iter()
+            .find_map(|i| match i {
+                Instruction::Damage(d) if d.side_ref == SideReference::SideTwo => {
+                    Some(d.damage_amount)
+                }
+                _ => None,
+            })
+            .unwrap_or(0)
+    };
+    let full = State::default().side_two.get_active_immutable().maxhp;
+    assert_eq!(
+        damage(full, Choices::TACKLE),
+        24,
+        "a neutral hit is halved at full HP"
+    );
+    assert_eq!(
+        damage(full - 1, Choices::TACKLE),
+        48,
+        "below full HP it is not"
+    );
+    // Close Combat is super effective on the default Normal type: at full HP it is cut from double to half, and
+    // below full HP it knocks the defender out.
+    assert_eq!(damage(full, Choices::CLOSECOMBAT), 49);
+    assert_eq!(damage(full - 1, Choices::CLOSECOMBAT), full - 1);
 }
 
 #[test]
