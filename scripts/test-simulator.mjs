@@ -30,6 +30,8 @@ for (let run = 1; run <= runCount; run++) {
     const manager = new BattleManager({
       room, username: `Bot${playerIndex + 1}`,
       send(command) {
+        // The battle timer is asked for with the first request; the local simulator has no timer to turn on.
+        if (command.endsWith('|/timer on')) return true;
         const match = /\|\/choose (.+)\|(\d+)$/.exec(command);
         assert.ok(match, 'Expected a request-tagged choice');
         assert.equal(Number(match[2]), rqid, 'Choice must belong to latest request');
