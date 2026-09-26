@@ -397,7 +397,8 @@ why. Start it as usual and open <http://127.0.0.1:8733>. It shows:
 `-- --game <battle number>`):
 - a guard skipping a move that Jev and the search both chose, or one the search clearly preferred;
 - a certain first-strike knockout passed up;
-- a move that was immune or failed;
+- a move that was immune or failed, and why: the target switched in on it or Terastallized that turn (their read),
+  an ability not yet shown, a Choice lock, or a target already on the field when chosen (worth a look);
 - a healthy switch-in that fainted before it acted;
 - the same status move three turns running at full HP.
 

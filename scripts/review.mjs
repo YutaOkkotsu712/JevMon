@@ -8,7 +8,8 @@
 //   guard-overruled-both  a guard skipped the move Jev and the search both chose, the search by 0.05 or more
 //   guard-vs-search       a guard skipped the search's choice for one it rated at least 0.1 lower
 //   knockout-passed       a legal attack knocked the target out at every sampled roll and moved first; we did not use it
-//   did-nothing           our move was immune or failed
+//   did-nothing           our move was immune or failed, and why: the target switched in on it, Terastallized that
+//                         turn, showed an ability, we were locked into the move, or it was already on the field
 //   fainted-on-entry      a Pokémon we chose to switch in, at half HP or more, fainted before it acted
 //   repeated-status       the same status move three turns or more in a row at full HP
 // Each battle closes with its luck: critical hits and misses on each side, full paralysis and flinches.
@@ -84,7 +85,16 @@ for (const f of files) {
       const next = turnLines[ourMove + 1] ?? '';
       // A move with no target left (it fainted first) is not a wasted choice.
       if (/^\|-(immune|fail)\|/.test(next) && !/^\|-fail\|.*\|(unboost|boost)/.test(next) && !turnLines[ourMove].includes('[notarget]')) {
-        flag('did-nothing', t, `${turnLines[ourMove].split('|')[3]} → ${next.split('|').slice(1, 4).join(' ')}`);
+        // Why it did nothing decides whether it was ours to avoid: a Pokémon switched in on it, or a Tera that turn, is
+        // the opponent's read; one already facing us, as it was when we chose, is a move we should not have picked.
+        const before = turnLines.slice(0, ourMove);
+        const read = before.find(l => new RegExp(`^\\|(switch|drag)\\|${foeSide}a: `).test(l))
+          ? 'switched in on it' : before.find(l => l.startsWith(`|-terastallize|${foeSide}a: `))
+          ? `Terastallized to ${before.find(l => l.startsWith(`|-terastallize|${foeSide}a: `)).split('|')[3]} that turn` : null;
+        const moves = new Set(d.legalActions.filter(a => a.kind === 'move').map(a => a.label.split(' + Tera')[0]));
+        const why = read ?? (moves.size === 1 ? 'locked into it' : /\[from\] ability: /.test(next) && !foe?.ability
+          ? 'an ability not yet shown' : 'already on the field when chosen');
+        flag('did-nothing', t, `${turnLines[ourMove].split('|')[3]} → ${next.split('|').slice(1, 4).join(' ')} (${why})`);
       }
     }
     // A switch we chose whose Pokémon fainted before acting. One below half HP is usually a deliberate sacrifice.
