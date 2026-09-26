@@ -1482,11 +1482,31 @@ export function freeKnockoutPassedUp(input: DecisionInput) {
     try { return damageRange(s, move.name, action.command.endsWith(' terastallize') ? me.teraType ?? undefined : undefined)?.conditionalKO === 'all-sampled-rolls'; }
     catch { return true; }
   };
+  /**
+   * Whether the turn a heal hands them is worth less than the heal: of their likely moves (revealed, or in half their
+   * sets) that could work, none is a status move, sleep, setup, hazards or a heal of their own, which no HP pays for,
+   * and every hit takes less than the heal gives back. Protect gains them nothing but the turn itself.
+   */
+  const turnWorthLittle = (restores: number) => {
+    const likely = plausibleMoves(foe).filter(m => m.revealed || (m.priorProbability ?? 0) >= 0.5).map(m => dex.moves.get(m.move))
+      .filter(m => m.exists && !certainFailure(s, m.name, foe, foeSide, me));
+    if (likely.some(m => m.category === 'Status' && !m.stallingMove)) return false;
+    const hits = (threat?.damagingMoves ?? []).filter(t => t.revealed || (t.priorProbability ?? 0) >= 0.5);
+    return Math.max(0, ...hits.map(t => t.percentOfMaxHP[1])) < restores;
+  };
   for (const action of input.legalActions) {
     if (action.kind !== 'move') continue;
     const move = moveOf(action);
     if (!move.exists || move.id === ko.move.id || outrunsAfter(move) || beatsThemToIt(move)) continue;
     if (move.category !== 'Status' && (!clean || alsoKnocksOut(action, move))) continue;
+    // A heal that gives back a quarter or more, when the turn it hands them is worth less than that, is the search's to
+    // price. Registeel at 45% had Rest, with a Chesto Berry, skipped for Body Press on a 9% Cetitan whose Ice moves it
+    // resists, and a judge with Cetitan's real set put Rest 0.089 ahead. In a 10-game audit three of the guard's seven
+    // skips were heals, and they carried nearly all of its cost (scripts/divergence.mjs --audit). A Darkrai with Hypnosis
+    // is another matter: Gogoat's Milk Drink over a certain Horn Leech (2686983295) handed it the sleep.
+    const restores = move.category === 'Status' && me.hpPercent !== null
+      ? Math.min(100 - me.hpPercent, move.id === 'rest' ? 100 : healPercentNow(move.name, s.field.weather) ?? 0) : 0;
+    if (restores >= 25 && turnWorthLittle(restores)) continue;
     const instead = move.category === 'Status' ? move.name : `${move.name}, which does not knock it out at every roll,`;
     result.set(action.id, { by: 'knockout', prefer: ko.action.id, reason: `${ko.move.name} ${how} ${foe.species} out at every sampled roll, whatever Tera it could choose${unless}, so ${instead} gives up a knockout for a turn the opponent never had to get` });
   }

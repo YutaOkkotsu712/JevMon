@@ -99,6 +99,12 @@ export function effectViability(s: BattleState, moveName: string, user: PokemonS
       certain.push(`${move.name} needs more than ${price === 50 ? 'half' : 'a quarter'} of the user's max HP`);
     }
   }
+  // Belly Drum and Fillet Away cost half the user's max HP and Clangorous Soul a third, and fail without more than that:
+  // a 9% Cetitan was still counted a Belly Drum threat.
+  const selfCost = ({ bellydrum: 50, filletaway: 50, clangoroussoul: 100 / 3 } as Record<string, number>)[move.id];
+  if (selfCost !== undefined && hp !== null && hp <= selfCost) {
+    certain.push(`${move.name} needs more than ${selfCost === 50 ? 'half' : 'a third'} of the user's max HP`);
+  }
   // Boosts cap at six stages in either direction.
   const boostTarget = self ? user : target;
   const boosts = { ...(self && move.boosts ? move.boosts : {}), ...(move.self?.boosts ?? {}) };

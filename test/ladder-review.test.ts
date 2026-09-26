@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { asleepWhileTheyBoost, outhealed, setupIntoPhazer } from '../src/strategy/dominance.js';
 import { generateLegalActions, parseChoiceRequest } from '../src/battle/LegalActionGenerator.js';
 import { battle, ours } from './helpers.js';
+import { certainFailure } from '../src/strategy/viability.js';
 
 const decide = (b: ReturnType<typeof battle>, hp?: number, activeIndex = 0) => {
   const request = parseChoiceRequest(JSON.stringify(b.payload(9, hp ?? b.me().exactHP?.max ?? 100, activeIndex)))!;
@@ -752,6 +753,30 @@ test('a certain knockout is not passed up for a heal or a boost when the opponen
   };
   assert.deepEqual(run(19), ['Bulk Up', 'Milk Drink']);
   assert.deepEqual(run(30), [], 'at 30% Darkrai can put up a Substitute before the hit, and Milk Drink would still have worked');
+});
+
+test('a big heal is not skipped for a knockout when the turn it hands over is worth less', () => {
+  // Self-play seed 101: Registeel at 45%, with Rest and a Chesto Berry, against a 9% Cetitan whose Ice moves it resists.
+  // Body Press knocks Cetitan out, but a judge with Cetitan's real set put Rest 0.089 ahead.
+  const run = (percent: number) => {
+    const roster = [ours('Registeel', 88, ['Body Press', 'Iron Defense', 'Rest', 'Stealth Rock'], 'Clear Body', 'Chesto Berry', 'Fighting')];
+    const b = battle(roster, 'Cetitan', 84);
+    const hp = Math.round(roster[0]!.maxHP * percent / 100);
+    for (const m of ['Ice Spinner', 'Ice Shard']) b.feed(`|move|p2a: Foe|${m}|p1a: Registeel`);
+    b.feed(`|-damage|p1a: Registeel|${hp}/${roster[0]!.maxHP}`);
+    b.feed('|-enditem|p2a: Foe|Sitrus Berry|[eat]'); b.feed('|-damage|p2a: Foe|9/100'); b.feed('|turn|2');
+    const input = decide(b, hp);
+    return labels(input, freeKnockoutPassedUp(input));
+  };
+  assert.ok(!run(45).includes('Rest'), 'Rest restores 55%, and a 9% Cetitan can do little with the turn');
+  assert.ok(run(85).includes('Rest'), 'at 85% Rest gives back too little to be worth the knockout');
+});
+
+test('Belly Drum, Fillet Away and Clangorous Soul need the HP they cost', () => {
+  const b = battle([ours('Registeel', 88, ['Body Press', 'Iron Defense', 'Rest', 'Stealth Rock'], 'Clear Body', 'Chesto Berry', 'Fighting')], 'Cetitan', 84);
+  const fails = (percent: number) => { b.feed(`|-damage|p2a: Foe|${percent}/100`); return certainFailure(b.state, 'Belly Drum', b.foe(), 'p2', b.me()); };
+  assert.equal(fails(80), null);
+  assert.match(fails(50) ?? '', /Belly Drum needs more than half of the user's max HP/);
 });
 
 test('a heal the opponent can use first keeps a status move open', () => {
