@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { battle, ours } from './helpers.js';
 import { buildGamePlan, compactGamePlan } from '../src/strategy/gamePlan.js';
 import { opponentModel, choiceContext, recordChoice } from '../src/strategy/opponentModel.js';
+import { plausibleMoves } from '../src/strategy/setPriors.js';
+import { inferOpponent } from '../src/strategy/inference.js';
 import { rankTacticalChoices } from '../src/strategy/tacticalRanking.js';
 import { sampleWorld } from '../src/search/engineState.js';
 import { baseSpecies, fitsTeam, revealedProfile, speciesPrior } from '../src/search/teamPrior.js';
@@ -176,6 +178,37 @@ test('hidden Pokémon follow the generator\'s team rules and species odds', () =
       ...w.unrevealed.map(u => revealedProfile(u.pokemon.species, u.pokemon.details))];
     members.forEach((m, j) => assert.ok(fitsTeam(m.key, members.filter((_, k) => k !== j)), `${m.key} breaks a team rule`));
   }
+});
+
+test('the generator\'s other team rules: Dry Skin and Fluffy are Fire weaknesses, and one Tera Blast user or Ogerpon', () => {
+  const team = (...names: string[]) => names.map(n => revealedProfile(n, `${n}, L85`));
+  // Toxicroak is Fire-neutral, but any Dry Skin it might have counts as a Fire weakness: a fourth is refused.
+  assert.equal(fitsTeam('toxicroak', team('Venusaur', 'Froslass', 'Kingambit')), false);
+  assert.equal(fitsTeam('toxicroak', team('Venusaur', 'Froslass')), true);
+  // On the team, a Dry Skin we have seen counts too.
+  const drySkin = revealedProfile('Toxicroak', 'Toxicroak, L88', { ability: 'Dry Skin' });
+  assert.equal(fitsTeam('weavile', [drySkin, ...team('Venusaur', 'Froslass')]), false);
+  assert.equal(fitsTeam('weavile', [revealedProfile('Toxicroak', 'Toxicroak, L88', { ability: 'Poison Touch' }), ...team('Venusaur', 'Froslass')]), true);
+  // Ogerpon, Ogerpon-Hearthflame and Terapagos never join a Tera Blast user, or each other.
+  assert.equal(fitsTeam('terapagos', team('Ogerpon')), false);
+  assert.equal(fitsTeam('ogerpon', [revealedProfile('Sylveon', 'Sylveon, L85', { moves: ['Tera Blast'] })]), false);
+  assert.equal(fitsTeam('ogerpon', team('Sylveon')), true);
+});
+
+test('a teammate\'s Stealth Rock makes a second one rare, in set inference and in likely moves', () => {
+  const b = battle([ours('Rotom-Wash', 83, ['Thunderbolt', 'Hydro Pump', 'Will-O-Wisp', 'Pain Split'], 'Levitate', 'Leftovers', 'Steel')], 'Glimmora', 83);
+  const active = () => b.state.sides.p2.team.find(p => p.id === b.state.sides.p2.activeId)!;
+  b.feed('|switch|p2a: Garganacl|Garganacl, L81|100/100');
+  const alone = plausibleMoves(active()).find(m => m.move === 'Stealth Rock')?.priorProbability ?? 0;
+  const aloneSets = inferOpponent(active()).candidates;
+  const share = (cs: typeof aloneSets) => cs.filter(c => c.moves.includes('stealthrock')).reduce((n, c) => n + c.probability, 0) / cs.reduce((n, c) => n + c.probability, 0);
+  b.feed('|switch|p2a: Foe|Glimmora, L83|100/100'); b.feed('|move|p2a: Foe|Stealth Rock|p1a: Rotom'); b.feed('|turn|2');
+  b.feed('|switch|p2a: Garganacl|Garganacl, L81|100/100');
+  assert.deepEqual(active().teammateMoves, ['stealthrock']);
+  assert.ok(alone > 0.3, `Garganacl usually carries Stealth Rock: ${alone}`);
+  const withTeammate = plausibleMoves(active()).find(m => m.move === 'Stealth Rock')?.priorProbability ?? 0;
+  assert.ok(withTeammate < alone * 0.1, `beside Glimmora's it is rare: ${withTeammate} against ${alone}`);
+  assert.ok(share(inferOpponent(active()).candidates) < share(aloneSets) / 3);
 });
 
 test('soft advice keeps an overwhelmingly supported action and compares all fallbacks', () => {

@@ -1,9 +1,10 @@
 import { dex, id as moveId } from '../pokemon/data.js';
 import { behaviourOf, choiceContext, recordChoice } from '../strategy/opponentModel.js';
+import { teamLimited } from '../search/teamPrior.js';
 import { SubstituteTracker } from '../strategy/SubstituteTracker.js';
 import { displayedMoves, formFromImmunity, formFromMove, illusionLevel, type IllusionForm } from '../strategy/illusion.js';
 import { BattleEvidence } from '../strategy/BattleEvidence.js';
-import { createBattleState, type BattleState, type PokemonState } from './BattleState.js';
+import { createBattleState, type BattleState, type PokemonState, type SideId } from './BattleState.js';
 import { canonicalIdent, isRecord, isStatus, parseCondition, sideId, speciesFromDetails } from '../showdown/parser.js';
 import type { ProtocolMessage } from '../showdown/protocol.js';
 
@@ -72,6 +73,15 @@ export class BattleTracker {
     if (pokemon.lastSleepTurnCounted === this.state.turn) return;
     pokemon.sleepTurns++;
     pokemon.lastSleepTurnCounted = this.state.turn;
+  }
+  /** Each opposing Pokémon's teammates' team-limited moves, for set inference (teamPrior.ts). */
+  private shareTeamMoves(side: SideId) {
+    if (side === this.state.mySide) return;
+    const team = this.state.sides[side].team;
+    for (const p of team) {
+      const held = [...new Set(team.filter(q => q !== p).flatMap(q => teamLimited(q.revealedMoves)))];
+      if (held.length) p.teammateMoves = held; else delete p.teammateMoves;
+    }
   }
   /** The last move used, by side, so an immunity can be traced to the attack that met it. */
   private lastMove: { side: string; move: string } | null = null;
@@ -185,6 +195,7 @@ export class BattleTracker {
           next = this.makePokemon(first, second);
           side.team.push(next);
         }
+        if (id && !candidates.length) this.shareTeamMoves(id);
         if (id && previous && !previous.fainted && message.type === 'switch' && !pivot) {
           recordChoice(this.state, id, 'switch', next.id);
         }
@@ -273,7 +284,7 @@ export class BattleTracker {
           // nothing but Meteor Beam.
           if (!called || effectId(source) === 'lockedmove') endSingleMove(pokemon);
           const ownMoveSet = !called || ownSetCallers.has(effectId(source.replace(/^(move|ability): /, '')));
-          if (ownMoveSet && !moves.includes(second)) moves.push(second);
+          if (ownMoveSet && !moves.includes(second)) { moves.push(second); if (id) this.shareTeamMoves(id); }
           this.lastMove = { side: id ?? '', move: second };
           // Illusion: a move the disguise could never carry names the Zoroark underneath.
           if (id !== this.state.mySide && !called && !pokemon.transformedInto && !pokemon.illusion) {

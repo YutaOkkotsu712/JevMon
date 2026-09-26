@@ -9,6 +9,7 @@ import type { Candidate } from './setTypes.js';
 export type { Candidate } from './setTypes.js';
 export { levelOf } from './calcCore.js';
 import { levelOf } from './calcCore.js';
+import { complementarySetWeight } from '../search/teamPrior.js';
 interface Role { role: string; movepool: string[]; abilities: string[]; teraTypes: string[] }
 const poolData = pools as Record<string, { level: number; sets: Role[] }>;
 const jointSets: Record<string, Candidate[]> = Object.fromEntries(
@@ -75,7 +76,11 @@ export function inferOpponent(p: PokemonState) {
   const compatible = disabled ? [] : (jointSets[speciesId] ?? []).filter(c => moves.every(m => c.moves.includes(m)) &&
     (!p.terastallized || !p.teraType || c.teraType === p.teraType));
   const excluded = new Set(p.inference?.excluded ?? []);
-  const candidates = compatible.filter(c => !excluded.has(c.key!));
+  // What its teammates have shown weighs the rest: the generator seldom gives two Pokémon Stealth Rock, Defog or screens.
+  const held = p.teammateMoves ?? [];
+  const standing = compatible.filter(c => !excluded.has(c.key!));
+  const candidates = held.length ? standing.map(c => ({ ...c, probability: c.probability * complementarySetWeight(c, [{ moves: held } as Candidate]) }))
+    .sort((a, b) => b.probability - a.probability) : standing;
   const speed = candidates.map(c => calcStat(9, 'spe', dex.species.get(canonicalSpecies(p.species)).baseStats.spe, c.ivs.spe, c.evs.spe, levelOf(p), 'Serious'));
   return {
     candidates,

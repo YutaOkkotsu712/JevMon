@@ -73,7 +73,7 @@ export function sampleWorld(s: BattleState, ourSide: SideId, random: () => numbe
   for (const p of theirs.team) { const pick = draw(p); if (pick) { world.sets.set(p.id, pick); selected.push(pick); } }
   // Unseen slots follow the generator: its species odds, and only Pokémon its team rules allow beside those we have seen
   // (teamPrior.ts). Both halves of an unmasked Illusion are on the team, the Zoroark and the Pokémon it was disguised as.
-  const team = theirs.team.flatMap(p => [revealedProfile(p.species, p.details),
+  const team = theirs.team.flatMap(p => [revealedProfile(p.species, p.details, { ability: p.baseAbility ?? p.ability, moves: p.revealedMoves }),
     ...(p.illusion ? [revealedProfile(p.illusion.species, p.illusion.details)] : [])]);
   const missing = Math.max(0, (theirs.teamSize ?? 6) - theirs.team.length);
   const ruledOut = new Set<string>();
@@ -87,7 +87,7 @@ export function sampleWorld(s: BattleState, ourSide: SideId, random: () => numbe
     const name = candidates.find((_, i) => (roll -= weights[i]!) <= 0) ?? candidates.at(-1)!;
     const stand = unseen(name), pick = draw(stand, true);
     if (!pick) { ruledOut.add(name); continue; }
-    team.push(revealedProfile(name, stand.details)); selected.push(pick);
+    team.push(revealedProfile(name, stand.details, { ability: pick.ability, moves: pick.moves })); selected.push(pick);
     world.unrevealed.push({ pokemon: stand, set: pick });
   }
   return world;

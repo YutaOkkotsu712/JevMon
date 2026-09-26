@@ -14,7 +14,7 @@ for (let t = 0; t < total; t++) {
   const team = generator.getTeam();
   // As a battle shows them: a Rusted Sword or Shield turns Zacian and Zamazenta Crowned before the first turn.
   const shown = p => ({ 'Rusted Sword': 'Zacian-Crowned', 'Rusted Shield': 'Zamazenta-Crowned' })[p.item] ?? p.species;
-  const members = team.map(p => revealedProfile(shown(p), `${shown(p)}, L${p.level}`));
+  const members = team.map(p => revealedProfile(shown(p), `${shown(p)}, L${p.level}`, { ability: p.ability, moves: p.moves }));
   members.forEach((m, i) => {
     if (!speciesPrior.has(m.key)) { unknown++; if (examples.length < 10) examples.push(`not drawable: ${team[i].species} as ${m.key}`); }
     if (!fitsTeam(m.key, members.filter((_, j) => j !== i))) { broken++; if (examples.length < 10) examples.push(`${m.key} refused beside ${members.filter((_, j) => j !== i).map(x => x.key).join(', ')}`); }

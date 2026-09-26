@@ -2,6 +2,9 @@ export type SideId = 'p1' | 'p2';
 export interface PokemonState {
   entryProjected?: boolean;
   hitsTaken?: number;
+  /** The team-limited moves (Stealth Rock, Defog, screens...) this opposing Pokémon's teammates have shown, which the
+   * generator seldom gives a second Pokémon (teamPrior.ts). */
+  teammateMoves?: string[];
   inference?: { excluded: string[]; contradictions: number;
     observations: { kind: 'speed' | 'damage'; turn: number; before: number; after: number; contradiction?: true; note: string }[] };
   id: string;

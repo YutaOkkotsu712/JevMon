@@ -1,6 +1,7 @@
 import data from '../data/gen9-randbats-stats.json' with { type: 'json' };
 import type { PokemonState } from '../battle/BattleState.js';
 import { canonicalSpecies, datasetSpeciesId, dex, id } from '../pokemon/data.js';
+import { teammateFactor } from '../search/teamPrior.js';
 // A role with no item (the Acrobatics sets) simply omits `items` in the published statistics.
 interface Role { weight: number; abilities: Record<string, number>; items?: Record<string, number>; teraTypes: Record<string, number>; moves: Record<string, number> }
 interface Entry { level: number; roles: Record<string, Role> }
@@ -16,9 +17,12 @@ function compatible(p: PokemonState) {
     (!p.terastallized || !p.teraType || Object.hasOwn(r.teraTypes, p.teraType)));
   const total = roles.reduce((n, [, r]) => n + r.weight, 0);
   if (!total) return null;
+  // A move its teammates have shown is one the generator seldom gives it too (teamPrior.ts).
+  const held = p.teammateMoves ?? [];
   const mix = (key: Key) => {
     const values = new Map<string, number>();
     for (const [, r] of roles) for (const [name, rate] of Object.entries(r[key] ?? {})) values.set(name, (values.get(name) ?? 0) + r.weight / total * rate);
+    if (key === 'moves' && held.length) for (const [name, rate] of values) values.set(name, rate * teammateFactor(name, held));
     return [...values].sort((a, b) => b[1] - a[1]);
   };
   return { roles, total, mix };

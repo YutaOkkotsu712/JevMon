@@ -25,28 +25,48 @@ for (const [base, list] of formes) {
   for (const key of list) speciesPrior.set(key, weight / list.length);
 }
 
-interface Profile { key: string; base: string; types: string[]; weak: string[]; doubleWeak: string[]; freezeDry: boolean; level100: boolean }
+interface Profile { key: string; base: string; types: string[]; weak: string[]; doubleWeak: string[]; freezeDry: boolean; level100: boolean;
+  /** Fire-neutral with Dry Skin or Fluffy: the generator counts that as a Fire weakness. */
+  fireAbility: boolean;
+  /** A Tera Blast user, or Ogerpon, Ogerpon-Hearthflame or Terapagos, of which the generator puts one on a team. */
+  teraBlast: boolean }
 /** The generator's getEffectiveness: an immunity counts as neutral, so Ground is a weakness of Skarmory. */
 function effectiveness(attack: string, types: string[]) {
   return types.reduce((n, t) => n + ({ 1: 1, 2: -1 }[dex.types.get(t).damageTaken[attack] as number] ?? 0), 0);
 }
 const attackTypes = [...dex.types.all()].map(t => t.name).filter(t => t !== 'Stellar');
 const profiles = new Map<string, Profile>();
-function profileOf(key: string, level?: number): Profile {
-  const cached = level === undefined ? profiles.get(key) : undefined;
+const fireAbilities = ['dryskin', 'fluffy'];
+const teraBlastSpecies = ['ogerpon', 'ogerponhearthflame', 'terapagos'];
+const setAbilities = pools as Record<string, { sets?: { abilities?: string[]; role?: string }[] }>;
+/**
+ * `ability` and `moves` are what is known of the set. The generator's Fire rule reads the chosen ability for a member
+ * already on the team, so an unknown one counts only when every set of the species has Dry Skin or Fluffy; a candidate
+ * is refused if any of its abilities could be one.
+ */
+function profileOf(key: string, level?: number, known: { ability?: string | null; moves?: string[] } = {}): Profile {
+  const plain = level === undefined && known.ability === undefined && known.moves === undefined;
+  const cached = plain ? profiles.get(key) : undefined;
   if (cached) return cached;
-  const types = [...dex.species.get(key).types];
+  const species = dex.species.get(key), types = [...species.types];
   const ice = effectiveness('Ice', types);
+  const fireNeutral = effectiveness('Fire', types) === 0;
+  const allSetsFire = (setAbilities[key]?.sets ?? []).length > 0 &&
+    (setAbilities[key]?.sets ?? []).every(r => (r.abilities ?? []).every(a => fireAbilities.includes(id(a))));
   const p = { key, base: baseSpecies(key), types,
     weak: attackTypes.filter(t => effectiveness(t, types) > 0), doubleWeak: attackTypes.filter(t => effectiveness(t, types) > 1),
-    freezeDry: ice > 0 || ice > -2 && types.includes('Water'), level100: (level ?? levels[key]?.level) === 100 };
-  if (level === undefined) profiles.set(key, p);
+    freezeDry: ice > 0 || ice > -2 && types.includes('Water'), level100: (level ?? levels[key]?.level) === 100,
+    fireAbility: fireNeutral && (known.ability ? fireAbilities.includes(id(known.ability))
+      : plain ? Object.values(species.abilities).some(a => fireAbilities.includes(id(a))) : allSetsFire),
+    teraBlast: teraBlastSpecies.includes(key) || (known.moves ?? []).some(m => id(m) === 'terablast') };
+  if (plain) profiles.set(key, p);
   return p;
 }
-/** A revealed Pokémon as the generator chose it: the listed forme a battle forme came from, at its shown level. */
-export function revealedProfile(species: string, details?: string) {
+/** A revealed Pokémon as the generator chose it: the listed forme a battle forme came from, at its shown level, with
+ * whatever of its ability and moves has been seen. */
+export function revealedProfile(species: string, details?: string, known: { ability?: string | null; moves?: string[] } = {}) {
   const level = Number(/, L(\d+)/.exec(details ?? '')?.[1] ?? 100);
-  return profileOf(datasetSpeciesId(species, keys), level);
+  return profileOf(datasetSpeciesId(species, keys), level, { ability: known.ability ?? null, moves: known.moves ?? [] });
 }
 
 const webSetters = ['ariados', 'smeargle', 'masquerain', 'kricketune', 'leavanny', 'galvantula', 'vikavolt', 'ribombee', 'araquanid', 'spidops'];
@@ -60,10 +80,14 @@ export function fitsTeam(candidate: string, team: Profile[]) {
   const count = (f: (p: Profile) => boolean) => team.reduce((n, p) => n + (f(p) ? 1 : 0), 0);
   if (team.some(p => p.base === c.base)) return false;
   if (c.types.some(t => count(p => p.types.includes(t)) >= 2)) return false;
-  if (c.weak.some(t => count(p => p.weak.includes(t)) >= 3)) return false;
+  // Dry Skin and Fluffy on a Fire-neutral Pokémon count as a Fire weakness, for the one being added and those already in.
+  const weak = (t: string) => count(p => p.weak.includes(t) || (t === 'Fire' && p.fireAbility));
+  if (c.weak.some(t => weak(t) >= 3) || (c.fireAbility && weak('Fire') >= 3)) return false;
   if (c.doubleWeak.some(t => count(p => p.doubleWeak.includes(t)) >= 1)) return false;
   if (c.freezeDry && count(p => p.freezeDry) >= 4) return false;
   if (c.level100 && count(p => p.level100) >= 1) return false;
+  // Ogerpon, Ogerpon-Hearthflame and Terapagos are never added beside a Tera Blast user, or each other.
+  if (teraBlastSpecies.includes(c.key) && team.some(p => p.teraBlast)) return false;
   for (const [a, b] of INCOMPATIBLE) {
     if (b.includes(c.key) && team.some(p => a.includes(p.key))) return false;
     if (a.includes(c.key) && team.some(p => b.includes(p.key))) return false;
@@ -81,6 +105,15 @@ export type { Profile as TeamProfile };
 const SECOND_HOLDER: [string[], number][] = [[['stealthrock', 'stoneaxe'], 0.056], [['toxicspikes'], 0.016],
   [['defog', 'rapidspin', 'mortalspin'], 0.32], [['spikes'], 0.84], [['stickyweb'], 0.01], [['auroraveil'], 0.01],
   [['reflect', 'lightscreen'], 0.01]];
+/** The team-limited moves among these, as ids: the ones the generator seldom gives a second Pokémon. */
+export function teamLimited(moves: string[]) {
+  return moves.map(id).filter(m => SECOND_HOLDER.some(([group]) => group.includes(m)));
+}
+/** How much likelier a move is on a Pokémon whose teammates have shown these team-limited moves (see teamLimited). */
+export function teammateFactor(move: string, held: string[]) {
+  const m = id(move);
+  return SECOND_HOLDER.reduce((f, [group, factor]) => (group.includes(m) && held.some(h => group.includes(id(h))) ? f * factor : f), 1);
+}
 export function complementarySetWeight(set: Candidate, chosen: Candidate[]) {
   const held = new Set(chosen.flatMap(c => c.moves.map(id)));
   let weight = 1;
