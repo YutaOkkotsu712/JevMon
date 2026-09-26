@@ -83,6 +83,8 @@ fired, and each change was made after replaying those logs against what actually
   that overruled them. It also has a performance page with the rating over time, and replays of any recorded battle
   with a full-screen Present mode for recording.
 - **`node scripts/inspect-battle.mjs logs/<file>.jsonl turn <n>`** rebuilds exactly what Jev was sent on any turn.
+- **`node scripts/explain-turns.mjs <battle number> <first> [last]`** shows a few turns of one battle in full: the
+  position, each option's search share, Jev's probability and the blend, what any guard changed, and what happened.
 - **`npm run preflight`** replays recent decisions through new code before a restart: payload sizes, detail levels,
   and which guards would now change a logged choice.
 - **`node scripts/audit-decisions.mjs`** and **`audit-outcomes.mjs`** replay every logged decision and check guard

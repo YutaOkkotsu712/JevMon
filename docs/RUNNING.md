@@ -404,6 +404,10 @@ why. Start it as usual and open <http://127.0.0.1:8733>. It shows:
 It also gives each battle's luck: crits, misses, full paralysis and flinches on each side. It reads the logs through
 the current strategy code and makes no calls.
 
+`node scripts/explain-turns.mjs <battle number> <first turn> [last turn]` prints those turns in full: both actives
+and benches as the bot tracked them, every option with the search's share and score, Jev's probability and the blend,
+any guard or tactical correction, and then the battle lines of the turn. It is plain text, made to paste.
+
 `LIVE_VIEW_PORT` sets the port and `LIVE_VIEW_PORT=0` turns it off. The server binds
 to the loopback interface and serves only `GET`. The play-by-play reads only public
 battle lines, never our private request or the room's chat, and from a ladder
