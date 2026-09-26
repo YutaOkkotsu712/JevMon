@@ -1,4 +1,4 @@
-import { asleepWhileTheyBoost, doomedReplacement, futileSubstitute, statusIntoKnockout, destinyBondTrade, repeatedSelfEffect, certainlyFails, endeavorTooEarly, pickedOffOnArrival, pivotIntoKnockout, savingTheDoomed, losingHealLoop, sleeperThrownAway, setupIntoSleep, baitedCrash, chargeWontFire, seededAndLosing, freeKnockoutPassedUp, healAtFullHP, setupIntoPhazer, setupRaceLost, futileUnawareSetup, dominatedMoves, healingOverAKnockout, outhealed, recoilIntoRecovery, statusThatHelpsThem, encoredIntoNothing, futileProtect, lethalPriority, lockedAndLosing, lockedIntoImmunity, needlessGamble, preserveSoleDefensiveAnswer, redundantTera } from '../strategy/dominance.js';
+import { LEGACY_GUARDS, asleepWhileTheyBoost, doomedReplacement, futileSubstitute, statusIntoKnockout, destinyBondTrade, repeatedSelfEffect, certainlyFails, endeavorTooEarly, pickedOffOnArrival, pivotIntoKnockout, savingTheDoomed, losingHealLoop, sleeperThrownAway, setupIntoSleep, baitedCrash, chargeWontFire, seededAndLosing, freeKnockoutPassedUp, healAtFullHP, setupIntoPhazer, setupRaceLost, futileUnawareSetup, dominatedMoves, healingOverAKnockout, outhealed, recoilIntoRecovery, statusThatHelpsThem, encoredIntoNothing, futileProtect, lethalPriority, lockedAndLosing, lockedIntoImmunity, needlessGamble, preserveSoleDefensiveAnswer, redundantTera } from '../strategy/dominance.js';
 import { generateLegalActions, parseChoiceRequest, validateAction, type ChoiceRequest, type BattleAction } from './LegalActionGenerator.js';
 import type { BattleState } from './BattleState.js';
 import { cyclicSwitch } from '../strategy/loopGuard.js';
@@ -46,7 +46,7 @@ export interface DecisionLoopOptions {
   timeoutMs?: number;
   /** False runs no strategy guards, and `skip` leaves the named ones out, for measuring what they are worth on the
    * self-play bench. */
-  guards?: boolean | { skip: string[] };
+  guards?: boolean | { skip?: string[]; extra?: string[] };
   /**
    * Lookahead by poke-engine. `advise` puts its verdict in the provider's payload; `blend` also averages its visit
    * shares with the provider's probabilities and plays the top of that, the way Jaxcalibur lets its network's prior
@@ -271,8 +271,9 @@ export class DecisionLoop {
       // A guard that throws loses its own opinion, never the turn: an exception here used to end the whole decision
       // with no choice sent, which the battle timer turns into a loss.
       const dominance = new Map<string, { by: string; reason: string; prefer?: string }>();
-      const skipGuards = typeof this.options.guards === 'object' ? new Set(this.options.guards.skip) : null;
-      for (const guard of this.options.guards === false ? [] : [dominatedMoves, ...GUARDS].filter(g => !skipGuards?.has(g.name))) {
+      const skipGuards = typeof this.options.guards === 'object' ? new Set(this.options.guards.skip ?? []) : null;
+      const extraGuards = typeof this.options.guards === 'object' ? (this.options.guards.extra ?? []).map(n => LEGACY_GUARDS[n]).filter(g => !!g) : [];
+      for (const guard of this.options.guards === false ? [] : [dominatedMoves, ...GUARDS, ...extraGuards].filter(g => !skipGuards?.has(g!.name))) {
         let found: Map<string, { by: string; reason: string; prefer?: string }>;
         try { found = guard({ state, legalActions: actions, request }); }
         catch { this.options.onStatus(`strategy guard ${guard.name} failed; ignoring it for this decision`); continue; }

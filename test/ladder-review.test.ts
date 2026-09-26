@@ -840,3 +840,14 @@ test('a heal loop we are losing is broken: paralysed Slack Off against a hit it 
   b.feed('|-curestatus|p1a: Vigoroth|par|[msg]');
   assert.equal(losingHealLoop(decide(b, Math.round(roster[0]!.maxHP * 0.51))).size, 0, 'healthy, the heal keeps pace');
 });
+
+import { LEGACY_GUARDS } from '../src/strategy/dominance.js';
+test('the legacy rules kept for the bench skip what the old rules skipped', () => {
+  const heal = battle([ours('Reuniclus', 88, ['Psyshock', 'Recover', 'Focus Blast', 'Calm Mind'], 'Magic Guard', 'Life Orb', 'Steel')], 'Falinks', 84);
+  heal.feed('|move|p2a: Foe|Knock Off|p1a: Reuniclus'); heal.feed('|turn|2');
+  assert.deepEqual(labels(decide(heal), LEGACY_GUARDS.legacyHealAtFullHP!(decide(heal))), ['Recover'], 'full HP, whatever hits first');
+  const sleep = battle([ours('Misdreavus', 90, ['Draining Kiss', 'Will-O-Wisp', 'Calm Mind', 'Shadow Ball'], 'Levitate', 'Eviolite', 'Fairy'),
+    ours('Greninja', 80, ['Hydro Pump', 'Dark Pulse', 'Ice Beam', 'U-turn'], 'Protean', 'Choice Specs', 'Water')], 'Pachirisu', 96);
+  sleep.feed('|-status|p1a: Misdreavus|slp'); sleep.feed('|turn|2');
+  assert.equal(LEGACY_GUARDS.legacySleepSkip!(decide(sleep)).size, 4, 'every move of a sleeper that cannot wake');
+});

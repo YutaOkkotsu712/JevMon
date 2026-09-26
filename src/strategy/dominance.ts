@@ -1911,3 +1911,35 @@ export function pivotIntoKnockout(input: DecisionInput) {
   }
   return result;
 }
+
+/**
+ * The rules as they stood before audit-v12 and audit-v13, kept only so the self-play bench can play them against the
+ * current ones: every heal at full HP skipped, and every move of a sleeper that cannot wake skipped when it has no
+ * Sleep Talk or Snore. Not in GUARDS; the bench adds them by name with `extraGuards`.
+ */
+export const LEGACY_GUARDS: Record<string, (input: DecisionInput) => Map<string, { by: string; reason: string }>> = {
+  legacyHealAtFullHP(input: DecisionInput) {
+    const result = new Map<string, { by: string; reason: string }>();
+    const s = input.state;
+    if (!s.mySide || s.requestKind !== 'move' || input.request?.forceSwitch?.[0]) return result;
+    const me = s.sides[s.mySide].team.find(p => p.id === s.sides[s.mySide!].activeId);
+    if (!me || me.fainted || (me.hpPercent ?? 0) < 100) return result;
+    for (const action of input.legalActions) {
+      if (action.kind !== 'move') continue;
+      const move = dex.moves.get(action.label.split(' + Tera')[0]!);
+      const heals = move.exists && move.category === 'Status' && move.target === 'self' && (!!move.heal || ['rest', 'moonlight', 'synthesis', 'morningsun', 'shoreup'].includes(move.id));
+      if (heals && !move.boosts && !move.self?.boosts) result.set(action.id, { by: 'full', reason: `legacy: ${move.name} at full HP` });
+    }
+    return result;
+  },
+  legacySleepSkip(input: DecisionInput) {
+    const result = new Map<string, { by: string; reason: string }>();
+    const s = input.state;
+    if (!s.mySide || s.requestKind !== 'move' || input.request?.forceSwitch?.[0]) return result;
+    const me = s.sides[s.mySide].team.find(p => p.id === s.sides[s.mySide!].activeId);
+    if (!me || me.fainted || me.status !== 'slp' || wakeChance(me) !== 0) return result;
+    if (input.legalActions.some(a => a.kind === 'move' && ['sleeptalk', 'snore'].includes(id(a.label.split(' + Tera')[0]!)))) return result;
+    for (const action of input.legalActions) if (action.kind === 'move') result.set(action.id, { by: 'sleep', reason: 'legacy: asleep and cannot wake' });
+    return result;
+  },
+};
