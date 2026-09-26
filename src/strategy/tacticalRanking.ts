@@ -11,7 +11,7 @@ export const SOFT_GUARDS = new Set(['cyclicSwitch', 'needlessGamble', 'preserveS
   'baitedCrash', 'outhealed', 'recoilIntoRecovery', 'asleepWhileTheyBoost', 'setupIntoPhazer', 'setupRaceLost',
   'chargeWontFire', 'seededAndLosing', 'setupIntoSleep', 'sleeperThrownAway',
   'doomedReplacement', 'futileSubstitute', 'statusIntoKnockout', 'destinyBondTrade', 'endeavorTooEarly',
-  'pickedOffOnArrival', 'pivotIntoKnockout', 'savingTheDoomed', 'losingHealLoop']);
+  'pickedOffOnArrival', 'pivotIntoKnockout', 'savingTheDoomed', 'losingHealLoop', 'suckerPunchReadFailed']);
 export interface TacticalAdvice { action: string; guard: string; reason: string; alternative?: string }
 const clamp = (n: number, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, n));
 

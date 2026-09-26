@@ -2756,3 +2756,15 @@ did nothing.
 - Of 160 decisions across the five battles, 7 played something the search rated 0.03 or more below its best: 4
   through the blend with Jev, 2 by guards (the Ho-Oh one, fixed above, and a Giga Drain knockout over Spore, which was
   right), and 1 where the search's most-visited action was not its best-scored.
+
+## Sucker Punch after it failed (2026-09-26)
+
+- In 2688242787 (a win), Sucker Punch failed six turns running against a Spiritomb, each time "already on the field
+  when chosen" by the review. Sucker Punch works only if the target attacks. The search takes the opponent's choice
+  as a best reply, so it went on expecting an attack the player had shown they would not make; the opponent model's
+  Sucker Punch term is at most ±0.175 in log weight and needs eight observations to move.
+- New soft guard `suckerPunchReadFailed`: when our active used Sucker Punch or Thunderclap last turn against the
+  Pokémon still facing it, and that Pokémon chose a status move, a heal or a setup move instead of attacking, the
+  move is penalised like the other soft guards (−2.1 in log weight). An attack that turn, a switch, or a turn of
+  something else in between leaves it alone. Sucker Punch into a sleeping target is not covered because it is not a
+  failure: Showdown checks the move the target chose, not whether it gets to use it.

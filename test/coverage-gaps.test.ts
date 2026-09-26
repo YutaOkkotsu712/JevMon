@@ -712,6 +712,33 @@ test('a heal after their hit restores from the lower HP, and a recoil knockout i
   assert.deepEqual(reckless.skipped, [], 'no free knockout to insist on');
 });
 
+import { suckerPunchReadFailed } from '../src/strategy/dominance.js';
+
+test('Sucker Punch is not clicked again into a Pokémon that just declined to attack into it', () => {
+  const roster = [ours('Kingambit', 77, ['Sucker Punch', 'Kowtow Cleave', 'Iron Head', 'Swords Dance'], 'Supreme Overlord', 'Black Glasses', 'Dark')];
+  const after = (turn1: string[], turn2: string[] = []) => {
+    const b = battle(roster, 'Spiritomb', 89);
+    for (const line of turn1) b.feed(line);
+    b.feed('|turn|2');
+    for (const line of turn2) b.feed(line);
+    if (turn2.length) b.feed('|turn|3');
+    const rqid = turn2.length ? 3 : 2;
+    b.feed(b.request(rqid, roster[0]!.maxHP));
+    const request = parseChoiceRequest(JSON.stringify(b.payload(rqid, roster[0]!.maxHP)))!;
+    const input = { state: b.state, legalActions: generateLegalActions(request), request };
+    const found = suckerPunchReadFailed(input);
+    return { labels: [...found.keys()].map(k => input.legalActions.find(a => a.id === k)!.label), reason: [...found.values()][0]?.reason };
+  };
+  const failed = ['|move|p1a: Kingambit|Sucker Punch|p2a: Foe', '|-fail|p2a: Foe', '|move|p2a: Foe|Pain Split|p1a: Kingambit'];
+  const refused = after(failed);
+  assert.deepEqual(refused.labels, ['Sucker Punch']);
+  assert.match(refused.reason!, /Sucker Punch failed on Spiritomb last turn, when it chose to heal instead of attacking/);
+  // It attacked, so the read was right and Sucker Punch stays open.
+  assert.deepEqual(after(['|move|p1a: Kingambit|Sucker Punch|p2a: Foe', '|-damage|p2a: Foe|60/100', '|move|p2a: Foe|Foul Play|p1a: Kingambit']).labels, []);
+  // A turn of something else in between: the failure is no longer last turn's.
+  assert.deepEqual(after(failed, ['|move|p1a: Kingambit|Kowtow Cleave|p2a: Foe', '|move|p2a: Foe|Will-O-Wisp|p1a: Kingambit']).labels, []);
+});
+
 import { datasetSpeciesId } from '../src/pokemon/data.js';
 
 test('a forme the set pools do not list takes its base species\' sets', () => {

@@ -1736,6 +1736,39 @@ export function pickedOffOnArrival(input: DecisionInput) {
 }
 
 /**
+ * Sucker Punch again into the Pokémon it just failed against. It works only if the target attacks, and a player who
+ * has watched it fail has every reason to go on using status moves: six Sucker Punches in a row failed against a
+ * Spiritomb that never attacked (2688242787). The search treats their choice as a best reply, so it went on expecting
+ * an attack that the player had already shown they would not make.
+ *
+ * Narrow: our active used Sucker Punch or Thunderclap last turn against the Pokémon still facing it, and that
+ * Pokémon's own choice that turn was not an attack (a status move, a heal or a setup move). A switch brings in someone
+ * new, and an attack means the move worked or was outsped, so neither counts.
+ */
+export function suckerPunchReadFailed(input: DecisionInput) {
+  const result = new Map<string, { by: string; reason: string }>();
+  const s = input.state;
+  if (!s.mySide || s.requestKind !== 'move' || input.request?.forceSwitch?.[0]) return result;
+  const side = s.mySide, foeSide: SideId = side === 'p1' ? 'p2' : 'p1';
+  const ours = s.sides[side], theirs = s.sides[foeSide];
+  const me = ours.team.find(p => p.id === ours.activeId), foe = theirs.team.find(p => p.id === theirs.activeId);
+  if (!me || !foe || me.fainted || foe.fainted) return result;
+  const conditional = ['suckerpunch', 'thunderclap'];
+  if (!conditional.includes(id(me.lastMoveUsed ?? '')) || me.lastActedTurn !== s.turn - 1) return result;
+  const then = s.actionHistory?.find(o => o.side === foeSide && o.turn === s.turn - 1 && o.actor === foe.id && o.facing === me.id);
+  if (!then || then.kind === 'attack' || then.kind === 'switch') return result;
+  const what = then.kind === 'recover' ? 'to heal' : then.kind === 'setup' ? 'to set up' : 'a status move';
+  const times = me.sameMoveStreak > 1 ? ` (${me.sameMoveStreak} in a row)` : '';
+  for (const action of input.legalActions) {
+    if (action.kind !== 'move') continue;
+    const move = dex.moves.get(action.label.split(' + Tera')[0]!);
+    if (!conditional.includes(move.id)) continue;
+    result.set(action.id, { by: 'history', reason: `${dex.moves.get(me.lastMoveUsed!).name} failed on ${foe.species} last turn${times}, when it chose ${what} instead of attacking; having seen it fail, they have every reason not to attack into ${move.name} now` });
+  }
+  return result;
+}
+
+/**
  * A heal loop we are losing. Vigoroth, paralysed, used Slack Off six turns running against a Duraludon at 47%: each
  * heal of 50% met a 46% Flash Cannon, a full paralysis turned 51% into 5%, and Duraludon never lost a point
  * (2687868557). Across the logs, 19 runs of three heals or more left the opponent's HP untouched, and we won 5 of
