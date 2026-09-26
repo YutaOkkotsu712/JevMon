@@ -21,7 +21,8 @@ export interface DecisionRecord {
   providerResult?: DecisionResult;
   providerMetrics?: ProviderMetrics;
   /** Set when a provably self-defeating switch was skipped in favour of the provider's next preference. */
-  skippedDominatedMove?: { from: string; to: string; reason: string };
+  /** `guard` names the guard whose objection moved the choice, so a review can count each guard's skips. */
+  skippedDominatedMove?: { from: string; to: string; reason: string; guard?: string };
   skippedCyclicSwitch?: { from: string; to: string; reason: string };
   /** The engine's lookahead for this decision, when search is on, and the ranking actually used in blend mode. */
   search?: { mode: SearchMode; inPayload?: boolean; values: Record<string, SearchValue>; worldsSearched: number; msTotal: number; solver?: 'endgame'; extended?: true };
@@ -296,7 +297,7 @@ export class DecisionLoop {
       const state = this.options.state();
       // A guard that throws loses its own opinion, never the turn: an exception here used to end the whole decision
       // with no choice sent, which the battle timer turns into a loss.
-      const dominance = new Map<string, { by: string; reason: string; prefer?: string }>();
+      const dominance = new Map<string, { by: string; reason: string; prefer?: string; guard: string }>();
       const advice: TacticalAdvice[] = [];
       const skipGuards = typeof this.options.guards === 'object' ? new Set(this.options.guards.skip ?? []) : null;
       const extraGuards = typeof this.options.guards === 'object' ? (this.options.guards.extra ?? []).map(n => LEGACY_GUARDS[n]).filter(g => !!g) : [];
@@ -308,7 +309,7 @@ export class DecisionLoop {
           if (planning && SOFT_GUARDS.has(guard.name)) {
             advice.push({ action: id, guard: guard.name, reason: entry.reason,
               ...(entry.prefer || entry.by ? { alternative: entry.prefer ?? entry.by } : {}) });
-          } else if (!dominance.has(id)) dominance.set(id, entry);
+          } else if (!dominance.has(id)) dominance.set(id, { ...entry, guard: guard.name });
         }
       }
       const reasons = new Map<string, string>();
@@ -333,7 +334,7 @@ export class DecisionLoop {
           const changedBy = ranked.chosen !== action.id ? advice.find(a => a.action === action!.id) : undefined;
           if (changedBy) {
             const changed = { from: action.id, to: ranked.chosen, reason: changedBy.reason };
-            if (changedBy.guard === 'cyclicSwitch') skipped = changed; else skippedMove = changed;
+            if (changedBy.guard === 'cyclicSwitch') skipped = changed; else skippedMove = { ...changed, guard: changedBy.guard };
           }
           ranking = ranked.ranking;
           action = actions.find(a => a.id === ranked.chosen)!;
@@ -367,7 +368,7 @@ export class DecisionLoop {
           .sort((a, b) => first(b) - first(a) || (ranking![b.id] ?? 0) - (ranking![a.id] ?? 0));
         if (ranked[0]) {
           const record = { from: action.id, to: ranked[0].id, reason: reasons.get(action.id)! };
-          if (dominance.has(action.id)) skippedMove = record; else skipped = record;
+          if (dominance.has(action.id)) skippedMove = { ...record, guard: dominance.get(action.id)!.guard }; else skipped = record;
           this.options.onStatus('strategy guard skipped an inferior choice; using the provider\'s next preference');
           action = ranked[0];
         }

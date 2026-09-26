@@ -33,6 +33,9 @@ const { values: args } = parseArgs({ options: {
   name: { type: 'string', default: 'divergence' }, 'first-seed': { type: 'string', default: '1' },
   'judge-ms': { type: 'string', default: '1500' }, 'judge-runs': { type: 'string', default: '2' },
   lanes: { type: 'string' }, force: { type: 'boolean', default: false },
+  // Judge every decision, not only divergences, and put each gap down to the rules that moved the choice off the
+  // search's own top pick: a misplay finder.
+  audit: { type: 'boolean', default: false },
 } });
 if (!process.env.SIMULATOR_DIR) throw new Error('Set SIMULATOR_DIR to a directory containing @pkmn/sim and @pkmn/randoms');
 const require = createRequire(resolve(process.env.SIMULATOR_DIR, 'package.json'));
@@ -123,6 +126,36 @@ async function judge(state, actions, battle) {
   return scores;
 }
 
+/** Scores this few visits are the judge's guesses, not its verdicts: tree search starves the moves it rates poorly. */
+const TRUSTED_VISITS = 1000;
+/**
+ * One judged decision: what B played, the search's own top pick and the judge's best, and the rules that moved the
+ * choice off the search's top. `ruleCost` is what those rules cost by the judge, when both scores are trusted.
+ */
+function auditRow(seed, side, state, record, scores) {
+  const values = record.search.values, label = id => record.legalActions.find(a => a.id === id)?.label ?? id;
+  const top = Object.entries(values).sort((x, y) => (y[1].visitShare ?? 0) - (x[1].visitShare ?? 0))[0]?.[0];
+  const chosen = record.selectedAction.id;
+  const trusted = Object.entries(scores).filter(([, v]) => v && v.visits >= TRUSTED_VISITS);
+  const best = trusted.sort((x, y) => y[1].score - x[1].score)[0]?.[0] ?? null;
+  const score = id => (scores[id] && scores[id].visits >= TRUSTED_VISITS ? scores[id].score : null);
+  const rules = [];
+  if (record.skippedDominatedMove) rules.push(`guard:${record.skippedDominatedMove.guard ?? 'unnamed'}`);
+  if (record.skippedCyclicSwitch) rules.push('guard:cyclicSwitch');
+  const t = record.tacticalRanking;
+  if (t && t.from !== t.to && !t.advice.some(x => x.action === t.from)) rules.push('plan');
+  if (record.teraHeldBack) rules.push('teraHeldBack');
+  if (record.pivotInsteadOfSwitch) rules.push('pivot');
+  if (!rules.length && chosen !== top) rules.push('blend');
+  const cost = chosen !== top && score(top) !== null && score(chosen) !== null ? Math.round((score(top) - score(chosen)) * 1000) / 1000 : null;
+  const regret = best && score(chosen) !== null ? Math.round((score(best) - score(chosen)) * 1000) / 1000 : null;
+  return { audit: true, seed, side, turn: state.turn, forced: state.requestKind === 'switch', regret, rules, ruleCost: cost,
+    chosen: { id: chosen, label: label(chosen), judge: scores[chosen], search: values[chosen] ?? null },
+    top: { id: top, label: label(top), judge: scores[top], search: values[top] ?? null },
+    best: best && { id: best, label: label(best), judge: scores[best], search: values[best] ?? null },
+    why: record.skippedDominatedMove?.reason ?? record.skippedCyclicSwitch?.reason ?? record.pivotInsteadOfSwitch?.reason ?? undefined };
+}
+
 async function play(seed) {
   const stream = new BattleStreams.BattleStream();
   const streams = BattleStreams.getPlayerStreams(stream);
@@ -158,17 +191,20 @@ async function play(seed) {
             if (!shadow) { stats.shadowFailed++; return; }
             stats.compared++;
             const a = shadow.selectedAction, b = record.selectedAction;
-            if (a.id === b.id) return;
-            stats.divergences++;
-            const scores = await judge(state, record.legalActions, battle);
-            const delta = scores[a.id] && scores[b.id] ? Math.round((scores[b.id].score - scores[a.id].score) * 1000) / 1000 : null;
-            if (delta !== null) stats.judged++;
-            appendFileSync(out, JSON.stringify({ divergence: true, seed, side, turn: state.turn, delta,
-              a: { id: a.id, label: a.label, judge: scores[a.id], search: search.values[a.id] ?? null },
-              b: { id: b.id, label: b.label, judge: scores[b.id], search: search.values[b.id] ?? null },
-              judgeBest: Object.entries(scores).filter(([, v]) => v).sort((x, y) => y[1].score - x[1].score)[0]?.[0] ?? null,
-              changedByB: record.tacticalRanking?.from !== record.tacticalRanking?.to ? record.tacticalRanking : undefined,
-              skippedByA: shadow.skippedDominatedMove ?? shadow.skippedCyclicSwitch }) + '\n');
+            let scores = null;
+            if (a.id !== b.id) {
+              stats.divergences++;
+              scores = await judge(state, record.legalActions, battle);
+              const delta = scores[a.id] && scores[b.id] ? Math.round((scores[b.id].score - scores[a.id].score) * 1000) / 1000 : null;
+              if (delta !== null) stats.judged++;
+              appendFileSync(out, JSON.stringify({ divergence: true, seed, side, turn: state.turn, delta,
+                a: { id: a.id, label: a.label, judge: scores[a.id], search: search.values[a.id] ?? null },
+                b: { id: b.id, label: b.label, judge: scores[b.id], search: search.values[b.id] ?? null },
+                judgeBest: Object.entries(scores).filter(([, v]) => v).sort((x, y) => y[1].score - x[1].score)[0]?.[0] ?? null,
+                changedByB: record.tacticalRanking?.from !== record.tacticalRanking?.to ? record.tacticalRanking : undefined,
+                skippedByA: shadow.skippedDominatedMove ?? shadow.skippedCyclicSwitch }) + '\n');
+            }
+            if (args.audit) appendFileSync(out, JSON.stringify(auditRow(seed, side, state, record, scores ?? await judge(state, record.legalActions, battle))) + '\n');
           })().catch(() => { stats.shadowFailed++; });
         } } });
     managers.push(manager);
@@ -219,6 +255,23 @@ function report() {
     `[${(100 * (mean - half) * perPlayer).toFixed(2)} to ${(100 * (mean + half) * perPlayer).toFixed(2)}], if the judge's estimates were win probabilities`);
 }
 
+/** Audit mode: how far the bot's choices fell short of the judge's, and what each rule that moved the choice cost. */
+function auditReport() {
+  const rows = readFileSync(out, 'utf8').trim().split('\n').map(l => JSON.parse(l)).filter(r => r.audit);
+  const judged = rows.filter(r => r.regret !== null);
+  if (!judged.length) return;
+  const mean = xs => xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length);
+  const interval = xs => { const m = mean(xs), sd = Math.sqrt(xs.reduce((a, d) => a + (d - m) ** 2, 0) / Math.max(1, xs.length - 1));
+    return `${m.toFixed(4)} [95% ${(m - 1.96 * sd / Math.sqrt(xs.length)).toFixed(4)} to ${(m + 1.96 * sd / Math.sqrt(xs.length)).toFixed(4)}]`; };
+  console.log(`audit: ${judged.length} decisions judged; mean regret ${mean(judged.map(r => r.regret)).toFixed(4)}; ` +
+    `${judged.filter(r => r.regret >= 0.05).length} at 0.05 or more`);
+  const byRule = new Map();
+  for (const r of rows) for (const rule of r.rules) if (r.ruleCost !== null) (byRule.get(rule) ?? byRule.set(rule, []).get(rule)).push(r.ruleCost);
+  for (const [rule, costs] of [...byRule].sort((x, y) => mean(y[1]) * y[1].length - mean(x[1]) * x[1].length)) {
+    console.log(`  ${rule}: moved ${costs.length} choices off the search's top; cost each ${interval(costs)} (positive: the rule lost value)`);
+  }
+}
+
 console.log(`divergence ${args.name}: ${games} games from seed ${firstSeed}, ${lanes} search lanes per player, judge ${judgeRuns} x ${judgeMs} ms`);
 console.log('A', JSON.stringify(policy(A)), 'B', JSON.stringify(policy(B)), 'search', JSON.stringify({ worlds: B.worlds, msPerWorld: B.msPerWorld }));
 for (let seed = firstSeed; seed < firstSeed + games; seed++) {
@@ -228,5 +281,7 @@ for (let seed = firstSeed; seed < firstSeed + games; seed++) {
   console.log(`seed ${seed}: ${result.winner}${result.error ? ` (${result.error})` : ''} in ${result.turns} turns, ${result.seconds}s, ` +
     `${result.divergences} of ${result.compared} decisions differ`);
   report();
+  if (args.audit) auditReport();
 }
 report();
+if (args.audit) auditReport();
