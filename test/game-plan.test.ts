@@ -42,6 +42,14 @@ test('a former candidate loses its role when a revealed immunity replaces its fa
   assert.ok(after.roles.every(r => r.matchups.every(m => m.foe !== b.foe().id)), 'fainted threats confer no preservation value');
 });
 
+test('a move that knocks out its own user is a trade, not a race won', () => {
+  const b = battle([ours('Golem', 88, ['Explosion', 'Stealth Rock'], 'Sturdy', 'Custap Berry', 'Grass')], 'Abomasnow', 84);
+  hp(b.foe(), 30);
+  const role = buildGamePlan(input(b))!.roles.find(r => r.species === 'Golem')!;
+  assert.deepEqual(role.matchups, [], 'Explosion wins no race, since Golem does not live to see the result');
+  assert.deepEqual(role.uniqueAnswers, []);
+});
+
 test('HP, status, PP, hazards and Tera invalidate the current assessment without mutating battle state', () => {
   const b = fixture(), i = input(b), original = structuredClone(b.state);
   const first = buildGamePlan(i)!;

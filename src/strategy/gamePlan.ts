@@ -46,10 +46,12 @@ function samples(sets: Candidate[], n = 4): { set: Candidate; weight: number }[]
   }
   return [...drawn].map(([set, weight]) => ({ set, weight }));
 }
+/** Attacks that can be repeated until the race is won. Explosion and Final Gambit end their user: a trade, which made
+ * Golem an answer to whatever its Explosion knocked out. */
 function usable(p: PokemonState) {
   return (p.knownMoves.length ? p.knownMoves : p.revealedMoves).filter(m => {
     const move = dex.moves.get(m);
-    return move.exists && move.category !== 'Status' && (p.movePP?.[move.id]?.remaining ?? 1) > 0 &&
+    return move.exists && move.category !== 'Status' && !move.selfdestruct && (p.movePP?.[move.id]?.remaining ?? 1) > 0 &&
       !(Object.keys(p.volatiles).some(k => id(k) === 'disable') && Object.values(p.volatiles).some(v => id(v.data) === move.id));
   });
 }
