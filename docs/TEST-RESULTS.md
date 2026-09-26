@@ -2601,3 +2601,86 @@ overruling the search, or a guard's fallback. Four fixes:
   results above meaningless. Both entries are marked invalid.
 - The settings are now passed on as given, and a test checks that `planning: false` and a guard list reach the loop.
 - Benches that changed only search settings, including worlds, time and weights, were not affected.
+
+## Audit of the game plan, team prior and tactical ranking, and a way to test small changes (2026-09-26)
+
+What was audited: the game plan (`gamePlan.ts`), the team prior for unseen slots (`teamPrior.ts`), the tactical
+ranking that turned 22 guards into soft advice (`tacticalRanking.ts`), the opponent model, and the Jev request
+ceiling, all from 77eb20c.
+
+### Why every self-play result read about 50%
+
+- **The bench was too small for the changes.** 200 games resolve about ±7 points of win rate. A change has to be
+  worth about 10 points before 200 games show it four times in five. Guards and the plan alter 2–5% of decisions,
+  mostly near ties, and are worth a point or two, which needs thousands of games. A result near 50% meant "too
+  small to see", and was recorded as "neutral, stays".
+- **Most games are decided by the teams.** Six or seven pairs in ten split, so only the swept pairs carry signal.
+- **Two of five benches compared a bot with itself** (the BattleManager bug above), and nothing checked that the
+  sides differed.
+- **Self-play has no Jev and no human opponents**, which is where the plan's payload and the opponent model work.
+- **Stopping halfway when B is behind** kills a good small change about half the time.
+
+### The divergence test and the judge audit
+
+- `scripts/divergence.mjs` plays B in self-play and runs A on the same position and search result at every
+  decision. Where they differ, a judge scores both: poke-engine's search on the true position, with the opponent's
+  real sets, 2 × 1.5 s. An A/A run found no divergences in 159 decisions.
+- With `--audit` the judge scores every decision, and each gap is put down to the rule that moved the choice off
+  the search's own top pick. Large misses keep their position and the real sets.
+- `scripts/replay-misses.mjs` reruns those misses at the bot's budget, on sampled worlds and on the real sets:
+  a miss that goes away with the real sets was hidden information, and one that stays was the search. Of the first
+  four, three were hidden information and one was a guard.
+- The judge is the engine the bot searches with, so it cannot see the engine's own mechanical mistakes.
+
+### Results
+
+- **Planning, on against off (20 games, 1,159 decisions).** Planning changed 2.6% of decisions. Judged, the effect
+  was +0.2 points of win rate a game [95% −0.9 to +1.3]. That is not measurable either way, but it is tight enough
+  to rule out a real gain or loss.
+  - The plan's one-turn price on staying or switching (HP lost to the next hit, entry damage, a teammate's value on
+    arrival) changed 26 decisions: 9 worse, 2 better, −0.009 each on average. Those terms are removed.
+  - Soft guards overruled by a confident search were right 3 times of 3, +0.099 each, all one `outhealed` case
+    that is now fixed at its source.
+- **Judge audit, 10 games, 635 decisions.** Mean regret 0.010, and 33 decisions missed by 0.05 or more.
+  By the judge, each choice `freeKnockoutPassedUp` moved (9) was worth 0.022 less than the search's own
+  [95% 0.002 to 0.042], each `outhealed` moved (5) 0.043 less, and each `setupIntoPhazer` moved (6) 0.005 less. The
+  plan's remaining terms and the faster pivot gained where they moved a choice. The two guards are fixed below; the
+  audit ran before those fixes.
+
+### Fixed
+
+- **BattleManager** passed on only `guards: false`, so bench configs with skipped or extra guards, or planning off,
+  played the default bot.
+- **The plan was 3× slower than it needed to be**: `fittedSpread` refitted each Pokémon's stats on every damage
+  calculation. Now cached, 587 → 196 ms a plan here, with byte-identical plans and payloads over 250 positions. The
+  plan is also built while the engine searches, not after.
+- **Explosion and Final Gambit** counted as races won in the plan.
+- **Screens.** Every Random Battle screen setter holds Light Clay (167 of 167 in 5,000 generated teams). Since the
+  search was given effects' remaining turns, each screen was counted down from five, three turns short, and the
+  engine gave its own screens five turns. Both now give eight.
+- **A slow pivot's replacement comes in free.** After our U-turn or Volt Switch, when the opponent has already moved,
+  the engine was never told, and let them attack whatever came in.
+- **`outhealed`.** It ignored what the healer loses every turn anyway (poison, Salt Cure, Leech Seed, weather). It
+  skipped the moves that start that loss, and Pain Split. It accepted a way out that only lived through its entry:
+  Dusknoir was sent to Bastiodon, four times weak to Palossand's Earth Power. It counted Wish as healing every turn.
+  And it fired on healers that only keep level, which have no turns to spare. A heal must now outpace what the
+  healer takes by half again, which the ladder cases the guard was written for still clear.
+- **`freeKnockoutPassedUp`** skipped big heals for knockouts even when the opponent could do nothing with the turn.
+  Registeel was made to Body Press a 9% Cetitan over Rest with a Chesto Berry, 0.089 behind. A heal worth a quarter
+  or more now goes to the search when the opponent's likely moves hold no status, setup, hazard or heal and no hit
+  as big. Gogoat's Milk Drink against a Darkrai with Hypnosis is still skipped.
+- **Belly Drum, Fillet Away and Clangorous Soul** need more than half, half and a third of the user's HP.
+- **`npm run test:sim`** failed on the battle timer request.
+
+### The team prior
+
+- Checked against Showdown's own generator: no real member refused in 20,000 teams, every forme drawable, and the
+  species odds within 0.036 of the generated ones. Given three seen, it gives the real remaining three 16% more
+  likelihood than the old uniform draw.
+- Added from the generator's team loop: Dry Skin and Fluffy count as a Fire weakness, and Ogerpon, Ogerpon-Hearthflame
+  and Terapagos never join a Tera Blast user or each other. Still none refused; five known now rule out 30.3% of
+  species for the sixth.
+- **Revealed Pokémon now weigh their teammates' moves.** The generator seldom gives a second Pokémon Stealth Rock,
+  Toxic Spikes, Sticky Web, Defog, Rapid Spin or screens, and that was applied only to unseen slots. Set inference,
+  move priors and likely moves now use the measured pair factors. On 4,000 generated teams the log-likelihood of
+  each Pokémon's real team-limited moves went from −0.522 to −0.470.
