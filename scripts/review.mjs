@@ -10,6 +10,8 @@
 //   knockout-passed       a legal attack knocked the target out at every sampled roll and moved first; we did not use it
 //   did-nothing           our move was immune or failed, and why: the target switched in on it, Terastallized that
 //                         turn, showed an ability, we were locked into the move, or it was already on the field
+//   wrong-sacrifice       a Pokémon we sent in, by choice or after a faint, fainted before it acted while a teammate at
+//                         25 points of HP less or more could have taken the hit instead
 //   fainted-on-entry      a Pokémon we chose to switch in, at half HP or more, fainted before it acted
 //   repeated-status       the same status move three turns or more in a row at full HP
 // Each battle closes with its luck: critical hits and misses on each side, full paralysis and flinches.
@@ -28,7 +30,7 @@ const files = readdirSync(root + 'logs').filter(f => f.startsWith('battle-') && 
   .map(f => ({ f, t: statSync(root + 'logs/' + f).mtimeMs })).sort((a, b) => b.t - a.t)
   .slice(0, args.game ? undefined : Number(args.last)).reverse().map(x => x.f);
 
-const severity = { 'guard-overruled-both': 0, 'guard-vs-search': 1, 'knockout-passed': 2, 'did-nothing': 3, 'fainted-on-entry': 4, 'repeated-status': 5 };
+const severity = { 'guard-overruled-both': 0, 'guard-vs-search': 1, 'knockout-passed': 2, 'wrong-sacrifice': 3, 'did-nothing': 4, 'fainted-on-entry': 5, 'repeated-status': 6 };
 const totals = {};
 for (const f of files) {
   let rows; try { rows = readFileSync(root + 'logs/' + f, 'utf8').trim().split('\n').map(l => { try { return JSON.parse(l); } catch { return {}; } }); } catch { continue; }
@@ -97,16 +99,30 @@ for (const f of files) {
         flag('did-nothing', t, `${turnLines[ourMove].split('|')[3]} → ${next.split('|').slice(1, 4).join(' ')} (${why})`);
       }
     }
-    // A switch we chose whose Pokémon fainted before acting. One below half HP is usually a deliberate sacrifice.
-    if (d.selectedAction.kind === 'switch' && s.requestKind === 'move') {
+    // A Pokémon we sent in, by choice or as the replacement for one that fainted, that fainted before acting. Below half
+    // HP a voluntary one is usually a deliberate sacrifice. Either way, a clearly weaker teammate that could have taken
+    // the hit instead makes it the wrong one to lose: a full Copperajah went in to a Spectrier's Tera Blast with a 24%
+    // Ludicolo on the bench (2688262107).
+    if (d.selectedAction.kind === 'switch') {
+      const base = label => label.replace(/^Switch to /, '').split(',')[0].split('-')[0];
       const target = d.selectedAction.label.replace(/^Switch to /, '').split(',')[0];
-      const incoming = s.sides[my].team.find(p => p.species.split('-')[0] === target.split('-')[0] && p.id !== s.sides[my].activeId);
+      const member = label => s.sides[my].team.find(p => p.species.split('-')[0] === base(label) && p.id !== s.sides[my].activeId);
+      const incoming = member(d.selectedAction.label);
       const actedAfter = [t, t + 1].flatMap(x => byTurn.get(x) ?? []);
       const entered = actedAfter.findIndex(l => l.startsWith(`|switch|${my}a: `) && l.includes(target));
-      const fainted = entered >= 0 ? actedAfter.findIndex((l, i) => i > entered && l.startsWith(`|faint|${my}a: `)) : -1;
-      const moved = entered >= 0 ? actedAfter.findIndex((l, i) => i > entered && l.startsWith(`|move|${my}a: `)) : -1;
-      if (fainted >= 0 && (moved < 0 || moved > fainted) && (incoming?.hpPercent ?? 100) >= 50) {
-        flag('fainted-on-entry', t, `switched to ${target} at ${Math.round(incoming?.hpPercent ?? 100)}%, which fainted before acting (Jev ${L(jev) ?? '—'}, search ${L(searchTop) ?? '—'})`);
+      // Its own faint and its own move: a teammate that came in after it and fainted is not it.
+      const own = (l, kind) => l.startsWith(`|${kind}|${my}a: `) && l.split('|')[2].includes(base(target));
+      const left = entered >= 0 ? actedAfter.findIndex((l, i) => i > entered && l.startsWith(`|switch|${my}a: `)) : -1;
+      const fainted = entered >= 0 ? actedAfter.findIndex((l, i) => i > entered && (left < 0 || i < left) && own(l, 'faint')) : -1;
+      const moved = entered >= 0 ? actedAfter.findIndex((l, i) => i > entered && own(l, 'move')) : -1;
+      if (fainted >= 0 && (moved < 0 || moved > fainted)) {
+        const hp = Math.round(incoming?.hpPercent ?? 100);
+        const weaker = d.legalActions.filter(a => a.kind === 'switch' && a.id !== d.selectedAction.id).map(a => member(a.label))
+          .filter(p => p && !p.fainted && (p.hpPercent ?? 100) + 25 <= hp).sort((a, b) => (a.hpPercent ?? 0) - (b.hpPercent ?? 0));
+        const instead = weaker.length ? `, while ${weaker.map(p => `${p.species} at ${Math.round(p.hpPercent ?? 0)}%`).join(' and ')} could have gone instead` : '';
+        const who = `(Jev ${L(jev) ?? '—'}, search ${L(searchTop) ?? '—'})`;
+        if (s.requestKind === 'switch' && weaker.length) flag('wrong-sacrifice', t, `sent ${target} in at ${hp}% after a faint, and it fainted before acting${instead} ${who}`);
+        else if (s.requestKind === 'move' && hp >= 50) flag(weaker.length ? 'wrong-sacrifice' : 'fainted-on-entry', t, `switched to ${target} at ${hp}%, which fainted before acting${instead} ${who}`);
       }
     }
     // The same status move turn after turn at full HP.

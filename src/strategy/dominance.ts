@@ -1810,10 +1810,12 @@ export function losingHealLoop(input: DecisionInput) {
  * that had shown Close Combat; Baxcalibur came in at 57% to take it, fell to 8%, fainted next turn, and Poliwrath came
  * back to faint anyway (2687729196). Left in, Poliwrath is the only loss, and whatever replaces it comes in free.
  *
- * Narrow: a revealed attack that cannot miss knocks our active out at every sampled roll. Only a switch whose Pokémon,
- * after entry hazards, loses more HP to every such attack than switching saves (our active's HP, plus Regenerator's
- * third), and at least half of its own (or a fifth of a bar, when our active is at 35% or less), is skipped. A switch-in
- * that resists or is immune stays open, and a healthy active is never sacrificed this way, since nothing loses more.
+ * Narrow: a revealed attack that cannot miss knocks our active out at every sampled roll, or its own burn, poison, Leech
+ * Seed or the like does at the end of the turn whatever the opponent picks. Only a switch whose Pokémon, after entry
+ * hazards, loses more HP than switching saves (our active's HP, plus Regenerator's third), and at least half of its own
+ * (or a fifth of a bar, when our active is at 35% or less), is skipped: to every such attack, or, where only the residual
+ * dooms it and the opponent may do anything, on average over their likely moves. A switch-in that resists or is immune
+ * stays open, and a healthy active is never sacrificed this way, since nothing loses more.
  */
 export function savingTheDoomed(input: DecisionInput) {
   const result = new Map<string, { by: string; reason: string }>();
@@ -1829,7 +1831,17 @@ export function savingTheDoomed(input: DecisionInput) {
   let staying; try { staying = incomingThreats(s, me, side, Infinity); } catch { return result; }
   const doom = (staying?.damagingMoves ?? []).filter(m => m.revealed && m.conditionalKO === 'all-sampled-rolls' &&
     m.accuracyPercent === undefined && !m.substitute).map(m => m.move);
-  if (!doom.length) return result;
+  // Its own residual can doom it with nothing revealed at all: Lumineon, at 4% and burned, was switched out to a full
+  // Delphox, which took Bullet Seed coming in and fainted to Tail Slap before it acted (2688263161). The burn was going
+  // to knock Lumineon out that turn whatever Cinccino did.
+  let residual: ReturnType<typeof residuals> = null;
+  if (!doom.length) {
+    try { residual = residuals(s, me, side); } catch { residual = null; }
+    const net = residual?.perTurnPercentOfMaxHP;
+    const kindest = Array.isArray(net) ? Math.max(...net) : net ?? 0;
+    if (!residual || me.hpPercent + kindest > 0) return result;
+  }
+  const causes = residual?.sources.filter(x => x.percent < 0).map(x => x.source).join(' and ');
   for (const action of input.legalActions) {
     if (action.kind !== 'switch') continue;
     const target = s.sides[side].team.find(p => p.slot === Number(action.command.split(' ')[1]));
@@ -1841,13 +1853,21 @@ export function savingTheDoomed(input: DecisionInput) {
       const hit = threat?.damagingMoves.find(m => id(m.move) === id(move));
       return hit && !hit.takesNothingBecauseOfOurAbility ? Math.min(arriving, hit.percentOfMaxHP[0]) : 0;
     });
-    const least = Math.min(...losses);
+    // Doomed by the residual alone, the opponent is free to do anything: each likely move of theirs weighs by how likely
+    // their set is to have it, and a status move costs the switch-in nothing.
+    const weight = (m: { revealed: boolean; priorProbability: number | null }) => (m.revealed ? 1 : m.priorProbability ?? 0);
+    const mass = [...(threat?.damagingMoves ?? []), ...(threat?.otherPlausibleMoves ?? [])].reduce((n, m) => n + weight(m), 0);
+    const expected = mass ? (threat?.damagingMoves ?? []).reduce((n, m) =>
+      n + weight(m) * (m.takesNothingBecauseOfOurAbility ? 0 : Math.min(arriving, m.percentOfMaxHP[0])), 0) / mass : 0;
+    const least = doom.length ? Math.min(...losses) : expected;
     // A switch-in that loses half of what it has is always too dear. For an active at 35% or less, a fifth of a bar is:
     // Iron Leaves at 3%, doomed by Aura Wheel, was switched out to a Quaquaval that lost 26%, and came back next turn
     // to faint anyway, while each switch fed Morpeko a Speed boost (2687786966).
     const dear = least >= arriving / 2 || (me.hpPercent <= 35 && least >= 20);
     if (least <= saved || !dear) continue;
-    result.set(action.id, { by: 'sack', reason: `${foe.species}'s ${doom.join(' or ')} knocks ${me.species} (${Math.round(me.hpPercent)}%) out at every sampled roll, and ${target.species} would lose at least ${Math.round(least)}% of its ${Math.round(arriving)}% taking it instead: more than switching saves, so let ${me.species} go and bring the next Pokémon in free` });
+    result.set(action.id, { by: 'sack', reason: doom.length
+      ? `${foe.species}'s ${doom.join(' or ')} knocks ${me.species} (${Math.round(me.hpPercent)}%) out at every sampled roll, and ${target.species} would lose at least ${Math.round(least)}% of its ${Math.round(arriving)}% taking it instead: more than switching saves, so let ${me.species} go and bring the next Pokémon in free`
+      : `${me.species} (${Math.round(me.hpPercent)}%) faints to its ${causes || 'residual damage'} at the end of this turn whatever ${foe.species} does, and ${target.species} would lose about ${Math.round(least)}% of its ${Math.round(arriving)}% coming in, on average over ${foe.species}'s likely moves: more than switching saves, so let ${me.species} go and bring the next Pokémon in free` });
   }
   return result;
 }

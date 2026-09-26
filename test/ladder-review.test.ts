@@ -846,6 +846,28 @@ test('a weak Pokémon about to be knocked out is let go rather than a healthier 
   assert.equal(savingTheDoomed(at(1)).size, 0, 'at full HP Close Combat does not knock Poliwrath out, so nothing is sacrificed');
 });
 
+test('a Pokémon its own burn knocks out this turn is let go, though the opponent has shown nothing', () => {
+  // 2688263161: Lumineon at 4% and burned, facing a Cinccino that had just come in; a full Delphox went in instead,
+  // took Bullet Seed, and fainted to Tail Slap before it acted.
+  const roster = [ours('Lumineon', 93, ['Ice Beam', 'Alluring Voice', 'Hydro Pump', 'Encore'], 'Storm Drain', 'Life Orb', 'Water'),
+    ours('Delphox', 84, ['Nasty Plot', 'Fire Blast', 'Psyshock', 'Focus Blast'], 'Blaze', 'Heavy-Duty Boots', 'Fighting')];
+  const at = (hp: number, burned: boolean) => {
+    const b = battle(roster, 'Cinccino', 83);
+    if (burned) b.feed('|-status|p1a: Lumineon|brn');
+    b.feed('|turn|2');
+    const payload = b.payload(9, Math.round(roster[0]!.maxHP * hp), 0);
+    if (burned) payload.side.pokemon[0]!.condition += ' brn';
+    b.feed(`|request|${JSON.stringify(payload)}`);
+    const request = parseChoiceRequest(JSON.stringify(payload))!;
+    return { state: b.state, legalActions: generateLegalActions(request), request };
+  };
+  const doomed = at(0.04, true), skipped = savingTheDoomed(doomed);
+  assert.deepEqual(labels(doomed, skipped).map(n => n.split(',')[0]), ['Switch to Delphox']);
+  assert.match([...skipped.values()][0]!.reason, /Lumineon \(4%\) faints to its burn at the end of this turn whatever Cinccino does/);
+  assert.equal(savingTheDoomed(at(0.04, false)).size, 0, 'not burned, nothing shown knocks it out, so nothing is sacrificed');
+  assert.equal(savingTheDoomed(at(0.5, true)).size, 0, 'at half HP the burn does not finish it');
+});
+
 import { unsupportedReason } from '../src/strategy/calcCore.js';
 test('a two-turn move charging in reach keeps the estimates; one out of reach does not', () => {
   // A charging Eternatus's Meteor Beam dropped every estimate once the charge was recorded.

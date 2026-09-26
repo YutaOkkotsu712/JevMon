@@ -2769,3 +2769,22 @@ did nothing.
   something else in between leaves it alone. Sucker Punch into a sleeping target is not covered because it is not a
   failure: Showdown checks the move the target chose, not whether it gets to use it.
 - On the logged game the guard fires on turns 17 to 21, five of the six; turn 16 was the first Sucker Punch.
+
+## Sacrificing the right Pokémon (2026-09-26)
+
+- **`npm run review` flags `wrong-sacrifice`.** A Pokémon we sent in, by choice or as the replacement after a faint,
+  that fainted before it acted while a teammate at 25 points of HP less or more could have taken the hit instead. The
+  check follows the Pokémon that came in, so a teammate fainting after it switched out is not counted. Over the 16
+  logged games: 5 such flags, 3 of them in 2688263161, and 9 `fainted-on-entry` with no weaker teammate to send.
+- **`savingTheDoomed` also fires when the active's own residual finishes it.** It used to need a revealed attack that
+  knocks our active out. In 2688263161 Lumineon was at 4% and burned against a Cinccino that had just come in and shown
+  nothing; the burn was going to knock it out that turn whatever Cinccino did. Jev's switch to a full Delphox (65%,
+  against the search's Encore) won the blend; Delphox took a Bullet Seed coming in (28%) and fainted to Tail Slap
+  before it acted. Now, when the residual alone dooms the active, a switch is skipped if the switch-in loses more than
+  switching saves on average over the opponent's likely moves (a status move costing nothing). On that turn it
+  estimates Delphox's loss at 27%. Across the 425 logged move decisions it fires only there.
+- **Not changed: a Pokémon that has already lost.** In 2688262107 a full Glaceon, the last of ours, used Protect twice
+  against a 14% Life Orb Spectrier at +3 whose Tera Blast Fighting knocked it out whatever it did; the opponent used
+  Shadow Ball into both Protects, where Freeze-Dry would have survived 78% of the time and won. Within the solver's
+  depth, Protect postpones the knockout past the horizon, so it scores higher than an attack that loses at once. Left
+  as it is for now: the loss was already certain against the best reply.
