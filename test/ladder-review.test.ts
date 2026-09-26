@@ -46,6 +46,25 @@ test('outhealed counts what a healer loses every turn, and leaves the moves that
   assert.equal(outhealed(input).size, 0, 'a healer losing more each turn than it heals is not out-healing us');
 });
 
+test('outhealed stands down when the only way out is a switch the healer beats', () => {
+  // Self-play seed 11: Dusknoir's Poltergeist into a Shore Up Palossand was skipped three turns running for Bastiodon,
+  // four times weak to its Earth Power. The judge put Poltergeist 0.07 to 0.13 ahead each time.
+  const stall = (roster: ReturnType<typeof ours>[]) => {
+    const b = battle(roster, 'Palossand', 90);
+    b.foe().revealedMoves = ['Earth Power'];
+    // Behind +2 Defense, Poltergeist does under the half Shore Up restores, as it did in that game.
+    b.feed('|-boost|p2a: Foe|def|2'); b.feed('|-damage|p2a: Foe|55/100');
+    for (const turn of [2, 3]) { b.feed('|move|p2a: Foe|Shore Up|p2a: Foe'); b.feed('|-heal|p2a: Foe|100/100'); b.feed('|-damage|p2a: Foe|62/100'); b.feed(`|turn|${turn}`); }
+    return b;
+  };
+  const dusknoir = ours('Dusknoir', 88, ['Poltergeist', 'Shadow Sneak', 'Leech Life', 'Pain Split'], 'Frisk', 'Leftovers', 'Dark');
+  const trapped = stall([dusknoir, ours('Bastiodon', 89, ['Body Press', 'Foul Play', 'Iron Defense', 'Stealth Rock'], 'Sturdy', 'Leftovers', 'Fighting')]);
+  assert.equal(outhealed(decide(trapped)).size, 0, 'Bastiodon lives through its entry, then falls to the next Earth Power');
+  const answered = stall([dusknoir, ours('Corviknight', 83, ['Brave Bird', 'Body Press', 'Roost', 'Defog'], 'Pressure', 'Leftovers', 'Dragon')]);
+  const input = decide(answered);
+  assert.ok(labels(input, outhealed(input)).includes('Poltergeist'), 'Corviknight takes nothing from Earth Power, so it is the way out');
+});
+
 test('a sleeper is not left in while the opponent sets up, when a switch can answer it', () => {
   // The answer must live through its entry and a second hit, or move first. Toxapex takes Darkrai's hits; Gardevoir,
   // slower and hit hard by Sludge Bomb, is sent in only to fall too, as Arcanine was to a Drifblim (2687862037).
@@ -368,17 +387,21 @@ test('a pivot move clears the seed as well as a switch, so it is never skipped',
 });
 
 test('Wish counts as the half it heals, so attacking into a Wish and Protect loop is skipped', () => {
-  const roster = [ours('Sandy Shocks', 83, ['Volt Switch', 'Thunderbolt', 'Stealth Rock', 'Earth Power'], 'Protosynthesis', 'Heavy-Duty Boots', 'Grass'),
-    ours('Hitmonlee', 88, ['Swords Dance', 'Poison Jab', 'Knock Off', 'Close Combat'], 'Unburden', 'White Herb', 'Fighting')];
-  const b = battle(roster, 'Scream Tail', 88);
-  const wish = (turn: number) => { b.feed('|move|p2a: Foe|Wish|p2a: Foe'); b.feed(`|turn|${turn}`); b.feed('|move|p2a: Foe|Protect|p2a: Foe'); b.feed('|-heal|p2a: Foe|80/100|[from] move: Wish|[wisher] Foe'); b.feed(`|turn|${turn + 1}`); };
-  wish(2);
-  assert.equal(outhealed(decide(b)).size, 0, 'one heal is not yet a stall');
-  wish(4);
+  const loop = (partner: ReturnType<typeof ours>) => {
+    const b = battle([ours('Sandy Shocks', 83, ['Volt Switch', 'Thunderbolt', 'Stealth Rock', 'Earth Power'], 'Protosynthesis', 'Heavy-Duty Boots', 'Grass'), partner], 'Scream Tail', 88);
+    const wish = (turn: number) => { b.feed('|move|p2a: Foe|Wish|p2a: Foe'); b.feed(`|turn|${turn}`); b.feed('|move|p2a: Foe|Protect|p2a: Foe'); b.feed('|-heal|p2a: Foe|80/100|[from] move: Wish|[wisher] Foe'); b.feed(`|turn|${turn + 1}`); };
+    wish(2);
+    assert.equal(outhealed(decide(b)).size, 0, 'one heal is not yet a stall');
+    wish(4);
+    return b;
+  };
+  const b = loop(ours('Corviknight', 83, ['Brave Bird', 'Body Press', 'Roost', 'Defog'], 'Pressure', 'Leftovers', 'Dragon'));
   const input = decide(b), skipped = outhealed(input);
   // Volt Switch leaves as a switch would, and Stealth Rock pays on every later switch-in whatever Scream Tail heals.
   assert.deepEqual(labels(input, skipped), ['Earth Power', 'Thunderbolt']);
   assert.match((skipped.values().next().value as { reason: string }).reason, /Scream Tail has healed 2 times against Sandy Shocks, and each heal restores 50%/);
+  // Hitmonlee, slower and taking about half from Dazzling Gleam, falls to the second hit: no way out, so nothing is skipped.
+  assert.equal(outhealed(decide(loop(ours('Hitmonlee', 88, ['Swords Dance', 'Poison Jab', 'Knock Off', 'Close Combat'], 'Unburden', 'White Herb', 'Fighting')))).size, 0);
 });
 
 import { setupIntoSleep, sleeperThrownAway } from '../src/strategy/dominance.js';

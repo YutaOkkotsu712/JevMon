@@ -213,6 +213,30 @@ export function futileProtect(input: DecisionInput) {
 }
 
 /** Somewhere worth going: an offered switch whose target every sampled set does not knock out as it arrives. */
+/**
+ * A switch that answers the Pokémon in front of us: it lives through its entry and then either lives through a second hit
+ * from the opponent's likely attacks (revealed, or in half its sets) or moves first. Surviving the entry alone is not
+ * enough. Iron Jugulis, asleep, was switched to an Arcanine that a +2 Drifblim's Shadow Ball took to 39% and knocked
+ * out next turn before it moved; the search had staying at 0.197 against 0.170 (2687862037).
+ */
+function answeringSwitch(input: DecisionInput) {
+  const s = input.state;
+  if (!s.mySide) return false;
+  const side = s.mySide, ours = s.sides[side];
+  return input.legalActions.some(a => {
+    if (a.kind !== 'switch' || a.uncertain) return false;
+    const target = ours.team.find(p => p.slot === Number(a.command.split(' ')[1]));
+    if (!target || target.fainted) return false;
+    let threat; try { threat = incomingThreats(s, target, side, Infinity); } catch { return false; }
+    const likely = (threat?.damagingMoves ?? []).filter(m => m.revealed || (m.priorProbability ?? 0) >= 0.5);
+    const worst = Math.max(0, ...likely.map(m => m.percentOfMaxHP[1]));
+    const arriving = afterEntry(s, target, side).hpPercent ?? target.hpPercent ?? 100;
+    if (worst >= arriving) return false;
+    let first = false; try { first = speedSummary(s, target).relation === 'faster-than-all-samples'; } catch { first = false; }
+    return 2 * worst < arriving || first;
+  });
+}
+
 function escapable(input: DecisionInput) {
   const s = input.state;
   if (!s.mySide) return false;
@@ -793,9 +817,12 @@ export function outhealed(input: DecisionInput) {
   const healers = foe.revealedMoves.filter(m => id(m) === 'strengthsap' || id(m) === 'wish' || (healPercentNow(m, s.field.weather) ?? 0) > 0).map(m => dex.moves.get(m).name);
   const pp = opponentPP(s, foe, me)?.moves ?? [];
   if (healers.length && healers.every(h => (pp.find(m => m.move === h)?.atMostRemaining ?? Infinity) <= 1)) return result;
-  // With no switch that survives, a Taunt or Encore of our own still ends the stall, so the attacks are still skipped.
+  // With no switch that answers it, a Taunt or Encore of our own still ends the stall, so the attacks are still skipped.
+  // A switch that only lives through its entry is no way out: Dusknoir's Poltergeist into a Shore Up Palossand was
+  // skipped three turns running for Bastiodon, four times weak to its Earth Power, and a judge with Palossand's real set
+  // put Poltergeist 0.07 to 0.13 ahead each time (self-play seed 11).
   const breaks = input.legalActions.some(a => a.kind === 'move' && stallBreakers.has(id(a.label.split(' + Tera')[0]!)));
-  if (!heal || (!escapable(input) && !breaks)) return result;
+  if (!heal || (!answeringSwitch(input) && !breaks)) return result;
   const moves = input.legalActions.filter(a => a.kind === 'move').map(action => {
     const slot = Number(action.command.split(' ')[1]) - 1;
     const move = dex.moves.get(input.request?.active?.[0]?.moves[slot]?.id ?? action.label.split(' + Tera')[0]!);
@@ -828,6 +855,8 @@ export function outhealed(input: DecisionInput) {
     // Salt Cure and Leech Seed start a loss no heal stops, and Yawn puts the healer to sleep or out: the first of each
     // breaks the stall. Once it is in place, another is only its hit, or fails.
     if (['saltcure', 'leechseed', 'yawn'].includes(move.id) && !holds(move.id) && !(move.id === 'yawn' && foe.status)) continue;
+    // Pain Split is our own recovery as much as their loss, left to the search like our other heals.
+    if (move.id === 'painsplit') continue;
     // An attack that raises the stat it hits with, at least half the time, grows with every use: Torch Song's Special
     // Attack climbs each hit until it outpaces the heal, where a plain attack never does.
     const attackingStat = move.category === 'Physical' ? 'atk' : 'spa';
@@ -909,22 +938,7 @@ export function asleepWhileTheyBoost(input: DecisionInput) {
     return move.category === 'Status' && move.target === 'self' && Object.values(move.boosts ?? {}).some(v => (v ?? 0) > 0);
   })());
   if (!boosted.length && !setup) return result;
-  // Only an answer is worth the switch: a Pokémon that lives through its entry and then either lives through a second
-  // hit or moves first. Iron Jugulis, asleep, was switched to an Arcanine that a +2 Drifblim's Shadow Ball took to 39%
-  // and knocked out next turn before it moved; the search had staying at 0.197 against 0.170 (2687862037).
-  const answers = input.legalActions.some(a => {
-    if (a.kind !== 'switch' || a.uncertain) return false;
-    const target = ours.team.find(p => p.slot === Number(a.command.split(' ')[1]));
-    if (!target || target.fainted) return false;
-    let threat; try { threat = incomingThreats(s, target, side, Infinity); } catch { return false; }
-    const likely = (threat?.damagingMoves ?? []).filter(m => m.revealed || (m.priorProbability ?? 0) >= 0.5);
-    const worst = Math.max(0, ...likely.map(m => m.percentOfMaxHP[1]));
-    const arriving = afterEntry(s, target, side).hpPercent ?? target.hpPercent ?? 100;
-    if (worst >= arriving) return false;
-    let first = false; try { first = speedSummary(s, target).relation === 'faster-than-all-samples'; } catch { first = false; }
-    return 2 * worst < arriving || first;
-  });
-  if (!answers) return result;
+  if (!answeringSwitch(input)) return result;
   const why = boosted.length ? `${foe.species} is already boosted (${boosted.join(', ')})` : `${foe.species} has ${setup!.move}`;
   for (const action of input.legalActions) {
     if (action.kind !== 'move') continue;
