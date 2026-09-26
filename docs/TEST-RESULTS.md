@@ -2493,3 +2493,17 @@ overruling the search, or a guard's fallback. Four fixes:
   ways, with no Jev.
 - B won 99 of 200 = 49.5% [95% 42.6–56.4%], about −3 Elo. Sweeps were 16 to 17, with 67 split pairs.
 - With `newguards` (50.5%), none of the rule changes since audit-v11 measures as a regression. The current rules stay.
+
+## Sweep for bugs and gaps over the last 60 games (2026-09-26, audit-v18)
+
+- **No errors in 1,702 decisions.** Every choice was sent and every move decision had a search result. Jev fell back
+  6 times: 4 HTTP 500s from the provider and 2 timeouts, each played on the search's ranking.
+- **Fixed: a replace line without HP.** When Illusion ends, the opponent's `|replace|` line carries no HP. Parsing it
+  anyway left a "Malformed HP condition ignored" note in every later decision state of the game (42 states), and
+  those notes reach Jev's payload. The HP is now kept from the switch-in and no note is added.
+- **Set data is complete.** 35 forms seen in the logs have no entry of their own in gen9-sets.json: cosmetic forms,
+  and battle forms such as Maushold-Four, Dudunsparce-Three-Segment, Palafin-Hero, Mimikyu-Busted, Eiscue-Noice and
+  Terapagos-Terastal. All of them resolve to candidate sets, 1 to 31 each.
+- **The engine has no gaps.** 511 sampled positions rebuilt with no errors and no placeholder Pokémon. Cosmetic forms
+  (Alcremie, Vivillon) reach the engine under their base species, with the same stats.
+- Preflight over 60 games gives no warnings and no unavailable estimates. 445 tests pass.

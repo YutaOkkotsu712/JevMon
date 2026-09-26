@@ -197,7 +197,9 @@ export class BattleTracker {
         if (pokemon && second) {
           delete pokemon.illusion;
           pokemon.ident = canonicalIdent(first); pokemon.details = second; pokemon.species = speciesFromDetails(second);
-          this.condition(pokemon, third);
+          // A replace for the opponent carries no HP; the Pokémon keeps the HP it was shown with. Parsed anyway, the
+          // missing field left a "Malformed HP condition" note in every later decision of the game.
+          if (third) this.condition(pokemon, third);
           if (side) side.identityUncertain = true;
           this.uncertain('Illusion revealed: earlier identity and team counts may be ambiguous');
         }

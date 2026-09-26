@@ -359,3 +359,11 @@ test('an immunity to a move whose type is set in battle is no Illusion clue', ()
   assert.equal(maushold.illusion, undefined, 'a Ghost move on a Normal-type explains itself');
   assert.equal(maushold.species, 'Maushold-Four');
 });
+
+test('a replace line without HP keeps the HP and adds no malformed-condition note', () => {
+  const t = tracker();
+  feed(t, '|switch|p2a: Zoroark|Pachirisu, L96, M|81/100\n|replace|p2a: Zoroark|Zoroark-Hisui, L80, M\n|turn|3');
+  const z = t.state.sides.p2.team.find(p => p.species === 'Zoroark-Hisui')!;
+  assert.equal(z.hpPercent, 81);
+  assert.ok(!t.state.uncertainties.some(u => /Malformed HP/.test(u)));
+});
