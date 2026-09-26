@@ -53,11 +53,10 @@ for (const f of files) {
     const input = inputOf(record);
     let payload;
     try { payload = buildJevPayload(input); } catch (e) { errors.push(`${f.slice(29, 39)} t${record.state.turn}: ${e.message}`); continue; }
-    if (!payload) continue;
+    if (!payload) { overTokens++; continue; }
     tiers.now[payload.detail] = (tiers.now[payload.detail] ?? 0) + 1;
     bytes.push(payload.bytes);
     if (payload.overBudget) overBudget++;
-    if (payload.overTokenLimit) overTokens++;
     const why = payload.state.estimatesUnavailable;
     if (why && why !== 'no active Pokémon on both sides') unavailable.set(why, (unavailable.get(why) ?? 0) + 1);
     const s = record.state, mine = s.sides[s.mySide], me = mine.team.find(p => p.id === mine.activeId);

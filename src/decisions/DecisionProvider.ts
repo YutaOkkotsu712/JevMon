@@ -2,7 +2,8 @@ import type { BattleAction, ChoiceRequest } from '../battle/LegalActionGenerator
 import type { BattleState } from '../battle/BattleState.js';
 /** poke-engine's lookahead per legal action: its share of search visits and its mean score, a win estimate from 0 to 1. */
 export interface SearchValue { visitShare: number; meanScore: number | null }
-export interface DecisionInput { state: BattleState; legalActions: BattleAction[]; request?: ChoiceRequest; search?: Record<string, SearchValue> }
+export interface DecisionInput { state: BattleState; legalActions: BattleAction[]; request?: ChoiceRequest; search?: Record<string, SearchValue>;
+  gamePlan?: import('../strategy/gamePlan.js').GamePlan | null }
 export interface ProviderMetrics {
   attempts: number;
   successfulCalls: number;

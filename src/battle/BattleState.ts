@@ -103,6 +103,9 @@ export interface SideState {
   identityUncertain: boolean;
 }
 export interface BattleState {
+  /** Public choices recorded against the position before either player acted. */
+  actionHistory?: import('../strategy/opponentModel.js').ActionObservation[];
+  turnContext?: Partial<Record<SideId, import('../strategy/opponentModel.js').ChoiceContext>>;
   battleId: string;
   format: 'gen9randombattle';
   turn: number;

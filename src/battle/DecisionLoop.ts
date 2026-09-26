@@ -5,8 +5,12 @@ import { cyclicSwitch } from '../strategy/loopGuard.js';
 import { fasterPivot } from '../strategy/pivot.js';
 import type { DecisionProvider, DecisionResult, ProviderMetrics, SearchValue } from '../decisions/DecisionProvider.js';
 import { RandomDecisionProvider } from '../decisions/RandomDecisionProvider.js';
+import { buildGamePlan, compactGamePlan, type GamePlan } from '../strategy/gamePlan.js';
+import { rankTacticalChoices, SOFT_GUARDS, type TacticalAdvice } from '../strategy/tacticalRanking.js';
 
 export interface DecisionRecord {
+  gamePlan?: ReturnType<typeof compactGamePlan>;
+  tacticalRanking?: { from: string; to: string; corrections: ReturnType<typeof rankTacticalChoices>['corrections']; advice: TacticalAdvice[] };
   rqid: number;
   legalActions: BattleAction[];
   selectedAction: BattleAction;
@@ -47,6 +51,9 @@ export interface DecisionLoopOptions {
   /** False runs no strategy guards, and `skip` leaves the named ones out, for measuring what they are worth on the
    * self-play bench. */
   guards?: boolean | { skip?: string[]; extra?: string[] };
+  /** Recompute team roles/Tera and score uncertain tactical advice. False retains the old
+   * guard policy for controlled comparisons; no retained plan crosses a request boundary. */
+  planning?: boolean;
   /**
    * Lookahead by poke-engine. `advise` puts its verdict in the provider's payload; `blend` also averages its visit
    * shares with the provider's probabilities and plays the top of that, the way Jaxcalibur lets its network's prior
@@ -213,6 +220,12 @@ export class DecisionLoop {
       if (version !== this.revision || this.stopped) return;
     }
     let chosen: unknown, fallback = false;
+    const planning = this.options.planning !== false && this.options.guards !== false;
+    let gamePlan: GamePlan | null = null;
+    if (planning && actions.length > 1) {
+      try { gamePlan = buildGamePlan({ state: this.options.state(), legalActions: actions, request }); }
+      catch { this.options.onStatus('game plan unavailable; using search and existing tactical facts'); }
+    }
     let providerResult: DecisionResult | undefined;
     // Each provider call spends credit. Two turns are settled without one: a single legal action, and a search so sure
     // of one action that the blend follows it whatever the provider says. Across 7,555 logged blend decisions, those
@@ -227,6 +240,7 @@ export class DecisionLoop {
     if (!providerSkipped) try {
       const result = await Promise.race([
         this.provider.chooseAction({ state: structuredClone(this.options.state()), legalActions: structuredClone(actions), request: structuredClone(request),
+          gamePlan,
           ...(search && this.options.search?.inPayload !== false ? { search: search.values } : {}) }, { signal: controller.signal }),
         new Promise<never>((_resolve, reject) => {
           this.cancelPending = () => reject(new Error('Cancelled'));
@@ -274,18 +288,25 @@ export class DecisionLoop {
     // take its next preference instead. Never applies without a ranking, and never invents an action.
     let skipped: DecisionRecord['skippedCyclicSwitch'];
     let skippedMove: DecisionRecord['skippedDominatedMove'];
+    let tacticalRanking: DecisionRecord['tacticalRanking'];
     if (action && ranking) {
       const state = this.options.state();
       // A guard that throws loses its own opinion, never the turn: an exception here used to end the whole decision
       // with no choice sent, which the battle timer turns into a loss.
       const dominance = new Map<string, { by: string; reason: string; prefer?: string }>();
+      const advice: TacticalAdvice[] = [];
       const skipGuards = typeof this.options.guards === 'object' ? new Set(this.options.guards.skip ?? []) : null;
       const extraGuards = typeof this.options.guards === 'object' ? (this.options.guards.extra ?? []).map(n => LEGACY_GUARDS[n]).filter(g => !!g) : [];
       for (const guard of this.options.guards === false ? [] : [dominatedMoves, ...GUARDS, ...extraGuards].filter(g => !skipGuards?.has(g!.name))) {
         let found: Map<string, { by: string; reason: string; prefer?: string }>;
         try { found = guard({ state, legalActions: actions, request }); }
         catch { this.options.onStatus(`strategy guard ${guard.name} failed; ignoring it for this decision`); continue; }
-        for (const [id, entry] of found) if (!dominance.has(id)) dominance.set(id, entry);
+        for (const [id, entry] of found) {
+          if (planning && SOFT_GUARDS.has(guard.name)) {
+            advice.push({ action: id, guard: guard.name, reason: entry.reason,
+              ...(entry.prefer || entry.by ? { alternative: entry.prefer ?? entry.by } : {}) });
+          } else if (!dominance.has(id)) dominance.set(id, entry);
+        }
       }
       const reasons = new Map<string, string>();
       const targetOf = (candidate: BattleAction) => {
@@ -294,11 +315,32 @@ export class DecisionLoop {
         return state.sides[state.mySide].team.find(p => p.slot === slot);
       };
       const others = actions.map(targetOf).filter((p): p is NonNullable<typeof p> => !!p);
+      if (planning) {
+        if (state.mySide && !request.forceSwitch?.[0]) for (const candidate of actions) {
+          const target = targetOf(candidate);
+          if (!target || candidate.uncertain) continue;
+          try {
+            const reason = cyclicSwitch(state, state.mySide, target);
+            if (reason) advice.push({ action: candidate.id, guard: 'cyclicSwitch', reason });
+          } catch { /* Unavailable advice does not invalidate a legal action. */ }
+        }
+        try {
+          const ranked = rankTacticalChoices({ state, legalActions: actions, request, ...(search ? { search: search.values } : {}) }, ranking, action.id, gamePlan, advice);
+          tacticalRanking = { from: action.id, to: ranked.chosen, corrections: ranked.corrections, advice };
+          const changedBy = ranked.chosen !== action.id ? advice.find(a => a.action === action!.id) : undefined;
+          if (changedBy) {
+            const changed = { from: action.id, to: ranked.chosen, reason: changedBy.reason };
+            if (changedBy.guard === 'cyclicSwitch') skipped = changed; else skippedMove = changed;
+          }
+          ranking = ranked.ranking;
+          action = actions.find(a => a.id === ranked.chosen)!;
+        } catch { this.options.onStatus('tactical scoring unavailable; retaining the previous ranking'); }
+      }
       const cyclic = (candidate: BattleAction) => {
         const target = targetOf(candidate);
         const dominated = dominance.get(candidate.id);
         if (dominated) { reasons.set(candidate.id, dominated.reason); return true; }
-        if (!target || !state.mySide || request.forceSwitch?.[0] || candidate.uncertain) return false;
+        if (planning || !target || !state.mySide || request.forceSwitch?.[0] || candidate.uncertain) return false;
         // Entry death is a strategic cost, not proof that a deliberate sacrifice is dominated.
         let reason: string | null | undefined;
         try { reason = cyclicSwitch(state, state.mySide, target); } catch { reason = null; }
@@ -353,6 +395,8 @@ export class DecisionLoop {
       executedAction: sent ? action.command : null, dryRun: this.options.dryRun, fallback,
       latencyMs: Math.round(performance.now() - start),
       ...(providerResult ? { providerResult } : {}),
+      ...(gamePlan ? { gamePlan: compactGamePlan(gamePlan) } : {}),
+      ...(tacticalRanking ? { tacticalRanking } : {}),
       ...(skipped ? { skippedCyclicSwitch: skipped } : {}),
       ...(skippedMove ? { skippedDominatedMove: skippedMove } : {}),
       ...(search && this.options.search ? { search: { mode: this.options.search.mode, inPayload: this.options.search.inPayload !== false, ...search } } : {}),

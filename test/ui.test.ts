@@ -8,7 +8,7 @@ import { decisionView } from '../src/ui/view.js';
 import { LiveServer } from '../src/ui/LiveServer.js';
 import type { DecisionRecord } from '../src/battle/DecisionLoop.js';
 import { battle, ours } from './helpers.js';
-import { buildJevPayload, PAYLOAD_BUDGET_BYTES } from '../src/decisions/JevDecisionProvider.js';
+import { buildJevPayload, JEV_MAX_REQUEST_BYTES, PAYLOAD_BUDGET_BYTES } from '../src/decisions/JevDecisionProvider.js';
 
 function fixture() {
   const b = battle([
@@ -100,7 +100,7 @@ test('the live view serves state and the page, and refuses everything else', asy
   assert.equal(tunnelled, 200, 'a loopback name on another local port, as a tunnel gives, is answered');
 });
 
-test('an oversized payload is sent at the smallest tier rather than discarded for a random move', () => {
+test('an oversized payload is sent at the smallest tier, but never past the token ceiling', () => {
   const b = battle([
     ours('Garganacl', 80, ['Protect', 'Salt Cure', 'Body Press'], 'Purifying Salt', 'Leftovers', 'Fairy'),
     ours('Banette', 93, ['Poltergeist'], 'Insomnia', 'Life Orb', 'Ghost'),
@@ -119,10 +119,14 @@ test('an oversized payload is sent at the smallest tier rather than discarded fo
   const many = Array.from({ length: 200 }, (_, i) => ({ id: `move-${i + 1}`, kind: 'move' as const,
     command: `move ${i + 1}`, label: `A deliberately long action label used to inflate the request body ${i}`, uncertain: false }));
   const huge = buildJevPayload({ state: b.state, legalActions: many, request });
-  assert.ok(huge, 'an oversized turn is still asked; discarding it would mean playing at random');
+  assert.ok(huge, 'an oversized turn is still asked; discarding it would leave the search alone');
   assert.equal(huge.detail, 'minimal', 'it falls to the smallest tier first');
   assert.equal(huge.overBudget, true);
-  assert.ok(huge.bytes > PAYLOAD_BUDGET_BYTES);
+  assert.ok(huge.bytes > PAYLOAD_BUDGET_BYTES && huge.bytes <= JEV_MAX_REQUEST_BYTES);
+  // Past the model's own limit, at the densest bytes per token seen, nothing is sent at all.
+  const tooMany = Array.from({ length: 700 }, (_, i) => ({ id: `move-${i + 1}`, kind: 'move' as const,
+    command: `move ${i + 1}`, label: `A deliberately long action label used to inflate the request body ${i}`, uncertain: false }));
+  assert.equal(buildJevPayload({ state: b.state, legalActions: tooMany, request }), null);
 });
 
 import { BattleFeed } from '../src/ui/battleFeed.js';

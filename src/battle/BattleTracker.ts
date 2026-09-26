@@ -1,4 +1,5 @@
 import { dex, id as moveId } from '../pokemon/data.js';
+import { behaviourOf, choiceContext, recordChoice } from '../strategy/opponentModel.js';
 import { SubstituteTracker } from '../strategy/SubstituteTracker.js';
 import { displayedMoves, formFromImmunity, formFromMove, illusionLevel, type IllusionForm } from '../strategy/illusion.js';
 import { BattleEvidence } from '../strategy/BattleEvidence.js';
@@ -130,6 +131,11 @@ export class BattleTracker {
       case 'turn':
         if (/^\d+$/.test(first) && Number.isSafeInteger(Number(first))) {
           this.state.turn = Number(first);
+          this.state.turnContext = {};
+          for (const side of ['p1', 'p2'] as const) {
+            const context = choiceContext(this.state, side);
+            if (context) this.state.turnContext[side] = context;
+          }
           // Toxic damage grows by a sixteenth for every turn it has been in place.
           for (const s of Object.values(this.state.sides)) {
             const active = s.team.find(p => p.id === s.activeId);
@@ -178,6 +184,9 @@ export class BattleTracker {
         if (!next) {
           next = this.makePokemon(first, second);
           side.team.push(next);
+        }
+        if (id && previous && !previous.fainted && message.type === 'switch' && !pivot) {
+          recordChoice(this.state, id, 'switch', next.id);
         }
         next.boosts = {};
         next.details = second;
@@ -253,6 +262,7 @@ export class BattleTracker {
           const moves = pokemon.transformedInto ? pokemon.copiedMoves : pokemon.revealedMoves;
           // A move called by another (Sleep Talk, Copycat) spends no PP of its own.
           const called = a.some(value => value.startsWith('[from]'));
+          if (id && !called) recordChoice(this.state, id, behaviourOf(second));
           // Only some of those come from the user's own move set. A move reflected by Magic Bounce or
           // copied by Dancer belongs to whoever used it first, and recording it here would rule out every
           // set the Pokémon could actually have — which is how a Magic Bounce erases its own warning.

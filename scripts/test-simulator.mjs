@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
-import { JevDecisionProvider } from '../dist/src/decisions/JevDecisionProvider.js';
+import { JevDecisionProvider, JEV_MAX_REQUEST_BYTES } from '../dist/src/decisions/JevDecisionProvider.js';
 import { BattleManager } from '../dist/src/battle/BattleManager.js';
 import { parseFrame } from '../dist/src/showdown/protocol.js';
 if (!process.env.SIMULATOR_DIR) throw new Error('Set SIMULATOR_DIR to a directory containing @pkmn/sim and @pkmn/randoms');
@@ -57,7 +57,7 @@ for (let run = 1; run <= runCount; run++) {
             assert.equal(payload.questions.battle_action.type, 'choice');
             assert.ok(payload.state.ourSide.activeIndex >= 0, 'Our active Pokemon must be identified');
             largestPayload = Math.max(largestPayload, Buffer.byteLength(options.body));
-            assert.ok(largestPayload <= 24000, 'Payload must stay inside the local request budget');
+            assert.ok(largestPayload <= JEV_MAX_REQUEST_BYTES, 'Payload must stay inside the conservative hard ceiling');
             assert.equal(choices.length, payload.state.actions.length, 'Every offered action must be described');
             if (payload.state.actions.some(a => a.damageRange?.scenarios > 0)) damageDecisions++;
             if (payload.state.actions.some(a => a.switchIn?.incomingThreat || a.switchIn?.ourBestDamageFromNextTurn)) switchMatchupDecisions++;

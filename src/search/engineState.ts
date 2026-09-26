@@ -6,6 +6,7 @@ import { speedSummary } from '../strategy/speed.js';
 import { canonicalSpecies, dex, id } from '../pokemon/data.js';
 import joint from '../data/gen9-joint-sets.json' with { type: 'json' };
 import pools from '../data/gen9-sets.json' with { type: 'json' };
+import { baseSpecies, complementarySetWeight, fitsTeam, revealedProfile, speciesPrior } from './teamPrior.js';
 
 /**
  * Serialises our tracked battle into poke-engine's state string, so its search can play turns forward. The engine
@@ -53,7 +54,8 @@ const PLACEHOLDER = 'none,1,Typeless,Typeless,Typeless,Typeless,0,1,NONE,NONE,NO
 /** Draw one candidate set for every revealed opposing Pokémon, in proportion to its probability. */
 export function sampleWorld(s: BattleState, ourSide: SideId, random: () => number = Math.random): World {
   const theirs = s.sides[ourSide === 'p1' ? 'p2' : 'p1'];
-  const draw = (p: PokemonState) => {
+  const selected: Candidate[] = [];
+  const draw = (p: PokemonState, conditionTeam = false) => {
     // Every candidate, not the calculator's merged ones: dedupeCandidates keys on stats, ability and item, so it keeps
     // only the first moveset and Tera type of each group. Volcarona's 38 sets collapsed to two, Tera Water or Ground,
     // and no world ever held the Tera Grass Quiver Dance set it was actually running; the search rated Liquidation 0.95.
@@ -62,20 +64,30 @@ export function sampleWorld(s: BattleState, ourSide: SideId, random: () => numbe
     // needs a Pokémon there: a Zoroark's Dark Pulse, used as Chimecho, was written to Chimecho beside its own Calm Mind
     // and Dazzling Gleam, and every search played against an empty slot. Use the sets that explain the most of it.
     if (!sets.length && p.revealedMoves.length) sets = bestFitCandidates(p);
-    const total = sets.reduce((n, c) => n + c.probability, 0);
+    const weight = (c: Candidate) => c.probability * (conditionTeam ? complementarySetWeight(c, selected) : 1);
+    const total = sets.reduce((n, c) => n + weight(c), 0);
     let roll = random() * total;
-    return sets.find(c => (roll -= c.probability) <= 0) ?? sets.at(-1);
+    return sets.find(c => (roll -= weight(c)) <= 0) ?? sets.at(-1);
   };
   const world: World = { sets: new Map(), unrevealed: [] };
-  for (const p of theirs.team) { const pick = draw(p); if (pick) world.sets.set(p.id, pick); }
-  const taken = new Set(theirs.team.map(p => id(canonicalSpecies(p.species))));
+  for (const p of theirs.team) { const pick = draw(p); if (pick) { world.sets.set(p.id, pick); selected.push(pick); } }
+  // Unseen slots follow the generator: its species odds, and only Pokémon its team rules allow beside those we have seen
+  // (teamPrior.ts). Both halves of an unmasked Illusion are on the team, the Zoroark and the Pokémon it was disguised as.
+  const team = theirs.team.flatMap(p => [revealedProfile(p.species, p.details),
+    ...(p.illusion ? [revealedProfile(p.illusion.species, p.illusion.details)] : [])]);
   const missing = Math.max(0, (theirs.teamSize ?? 6) - theirs.team.length);
+  const ruledOut = new Set<string>();
   for (let tries = 0; world.unrevealed.length < missing && tries < 200; tries++) {
-    const name = species[Math.floor(random() * species.length)]!;
-    if (taken.has(name)) continue;
-    const stand = unseen(name), pick = draw(stand);
-    if (!pick) continue;
-    taken.add(name);
+    // While a revealed name may be a disguise, only the species clause is certain.
+    const candidates = species.filter(name => !ruledOut.has(name) && (theirs.identityUncertain
+      ? !team.some(p => p.base === baseSpecies(name)) : fitsTeam(name, team)));
+    if (!candidates.length) break;
+    const weights = candidates.map(name => speciesPrior.get(name) ?? 0);
+    let roll = random() * weights.reduce((a, b) => a + b, 0);
+    const name = candidates.find((_, i) => (roll -= weights[i]!) <= 0) ?? candidates.at(-1)!;
+    const stand = unseen(name), pick = draw(stand, true);
+    if (!pick) { ruledOut.add(name); continue; }
+    team.push(revealedProfile(name, stand.details)); selected.push(pick);
     world.unrevealed.push({ pokemon: stand, set: pick });
   }
   return world;

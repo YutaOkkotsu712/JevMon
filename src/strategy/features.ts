@@ -1,4 +1,5 @@
 import { revivalOptions, pivotPlan, teraDependents } from './teamTactics.js';
+import { buildGamePlan, compactGamePlan } from './gamePlan.js';
 import { afterEntry } from './entry.js';
 import { switchRelief } from './switchRelief.js';
 import { dominatedMoves } from './dominance.js';
@@ -159,6 +160,7 @@ export function extractFeatures(input: DecisionInput, detail: Detail = 'full') {
   // Hoisted above the actions so a switch can name what on their bench answers it: they may switch too,
   // and every per-switch matchup below is against the Pokémon currently out.
   const endgameSummary = s.mySide ? endgame(s, s.mySide) : null;
+  const plan = input.gamePlan === undefined ? buildGamePlan(input) : input.gamePlan;
   const reviving = input.legalActions.some(a=>a.kind==='revive');
   const revival = s.mySide && (reviving || me?.knownMoves.some(m=>m.toLowerCase().replace(/[^a-z0-9]/g,'')==='revivalblessing')) ? revivalOptions(s,s.mySide) : [];
   const staying = forced || !me || !s.mySide ? null : incomingThreats(s, me, s.mySide, threatLimit);
@@ -517,6 +519,7 @@ export function extractFeatures(input: DecisionInput, detail: Detail = 'full') {
     theirTurnMayBeLost: foe ? statusRisk(foe, s.turn) : null,
     // Past the pair on the field: who on our side answers what is left of theirs.
     endgame: endgameSummary,
+    ...(plan ? { currentGamePlan: compactGamePlan(plan) } : {}),
     // The Pokémon in front of us is not always the one our move lands on: they may switch as we attack.
     ifTheySwitch: theySwitch,
     ...(pattern ? { opponentSwitching: pattern } : {}),

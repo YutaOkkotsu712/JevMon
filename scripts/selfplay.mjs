@@ -96,6 +96,7 @@ async function play(seed, bAs) {
       onStatus(status) { if (/invalid request|no request-supported|retry limit|processing failed/.test(status)) fatal(new Error(status)); },
       onSnapshot(event, state) { turns = Math.max(turns, state.turn); if (event === 'win') winner = state.winner; },
       play: { dryRun: false, timeoutMs: 50,
+        planning: config.planning !== false,
         guards: config.guards === false ? false : config.skipGuards?.length || config.extraGuards?.length ? { skip: config.skipGuards ?? [], extra: config.extraGuards ?? [] } : true,
         // Search alone decides: without a provider ranking the blend plays the search's own.
         provider: { async chooseAction() { throw new Error('search only'); } },

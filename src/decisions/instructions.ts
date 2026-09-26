@@ -1,5 +1,5 @@
 /** Versioned so offline audits can distinguish the policy text used by a live decision. */
-export const INSTRUCTIONS_VERSION = '2026-09-26-audit-v20';
+export const INSTRUCTIONS_VERSION = '2026-09-26-dynamic-plan-v2';
 /**
  * Sent only with search values, so it costs nothing while search is off. It says what the numbers are and how much to
  * trust them: a lookahead that sees multi-turn consequences, but over guessed sets and a simplified engine.
@@ -41,6 +41,7 @@ export const INSTRUCTIONS = [
  * tier to the minimal one, which drops the switch-in predictions, projections and opposing set detail.
  */
 export const CONDITIONAL_INSTRUCTIONS: Record<string, string> = {
+  currentGamePlan: 'currentGamePlan is recomputed from this exact position. Its leadingCandidates and preferredTera are provisional, never orders to save a Pokemon. raceCoverage measures simplified direct-attack races across sampled sets, not battle win probability; a foe missing from a Pokemon\'s matchups is one it wins no race against, and a missing tera changes none. Races assume free entry and ignore switching, recovery, future boosts, critical hits and unrevealed opposing Tera. Reconsider roles after every reveal, HP/status/PP change or Tera; do not sacrifice useful teammates to preserve a former candidate. Compare spending Tera now to its remaining team uses; a useful defensive Tera can outweigh reserving it. Opponent behaviour probabilities are uncertain, decaying estimates, not guaranteed actions. Search and concrete tactical outcomes can outweigh this coarse plan.',
   // Only forced replacements carry it; always sending it cost every other payload 340 bytes of budget.
   ifTerastallizedOnFirstMoveAfterReplacement: 'After a fainted ally\'s free replacement, ifTerastallizedOnFirstMoveAfterReplacement shows a separate next-turn line: that Pokemon can spend our still-available Tera before the opponent attacks, and it may remove an apparent knockout. Tera is not used by the replacement action itself; compare the saved matchup with the once-per-battle cost.',
   crashesIfTheyTerastallizeInto: 'crashesIfTheyTerastallizeInto on a crash move lists their unspent Tera types that are immune to it and the share of their sets carrying one. Tera happens before any move, so if they use it this move hits nothing and we lose half our max HP; that risk is on top of accuracy and Protect.',
