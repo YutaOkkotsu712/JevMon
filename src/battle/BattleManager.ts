@@ -14,7 +14,7 @@ interface Options {
   onSnapshot: (event: string, state: BattleState) => void;
   joinTimeoutMs?: number;
   play?: { dryRun: boolean; timeoutMs?: number; provider?: DecisionProvider; search?: DecisionLoopOptions['search'];
-    guards?: boolean; onDecision: (record: DecisionRecord, state: BattleState) => void };
+    guards?: DecisionLoopOptions['guards']; planning?: boolean; onDecision: (record: DecisionRecord, state: BattleState) => void };
   /** Called once when this battle is decided, so a caller can free the room and take the next challenge. */
   /** Whether we won, going by the winner's name on the result line; 'tie' for a tie. */
   onFinished?: (outcome: 'won' | 'lost' | 'tie') => void;
@@ -50,7 +50,10 @@ export class BattleManager {
       ...(options.play.timeoutMs ? { timeoutMs: options.play.timeoutMs } : {}),
       ...(options.play.provider ? { provider: options.play.provider } : {}),
       ...(options.play.search ? { search: options.play.search } : {}),
-      ...(options.play.guards === false ? { guards: false } : {}),
+      // Both reach the loop as given. Only `guards: false` used to, so the bench's skipGuards and extraGuards sides, and
+      // its planning off side, played the same bot as the other side.
+      ...(options.play.guards !== undefined ? { guards: options.play.guards } : {}),
+      ...(options.play.planning !== undefined ? { planning: options.play.planning } : {}),
     });
   }
   ready(): void {

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BattleTracker } from '../src/battle/BattleTracker.js';
 import { BattleManager } from '../src/battle/BattleManager.js';
+import type { DecisionRecord } from '../src/battle/DecisionLoop.js';
 import { BattleLogger } from '../src/logging/BattleLogger.js';
 import { remainingPokemon } from '../src/battle/BattleState.js';
 import { parseCondition } from '../src/showdown/parser.js';
@@ -158,6 +159,30 @@ test('manager gates decisions on format, identity and battle completion', async 
   assert.deepEqual(commands, [`${room}|/timer on`, `${room}|/choose move 1|1`], 'the timer is asked for with the first real request');
   request.rqid = 2; feed('request', JSON.stringify(request)); feed('win', 'Bot'); await delay(0);
   assert.equal(commands.length, 2);
+});
+
+test('the manager hands the bench\'s guard and planning settings to the decision loop', async () => {
+  const { setTimeout: delay } = await import('node:timers/promises');
+  const request = JSON.stringify({ rqid: 1, side: { id: 'p1', name: 'Bot', pokemon: [
+    { ident: 'p1: Pikachu', details: 'Pikachu, L90', active: true, condition: '100/100' },
+  ] }, active: [{ moves: [{ id: 'surf', move: 'Surf', pp: 10 }, { id: 'thunderbolt', move: 'Thunderbolt', pp: 10 }] }] });
+  const run = async (settings: { guards?: boolean | { skip?: string[]; extra?: string[] }; planning?: boolean }) => {
+    const records: DecisionRecord[] = [];
+    const manager = new BattleManager({ room, username: 'Bot', send: () => true, onStatus: () => {}, onSnapshot: () => {},
+      play: { dryRun: true, ...settings, onDecision: r => records.push(r),
+        provider: { async chooseAction(input) { return { chosenAction: input.legalActions[0]!.id,
+          probabilities: Object.fromEntries(input.legalActions.map((a, i) => [a.id, i ? 0.4 : 0.6])) }; } } } });
+    const feed = (type: string, data: string) => manager.handle({ room, type, data });
+    feed('init', 'battle'); feed('gametype', 'singles'); feed('tier', '[Gen 9] Random Battle'); feed('request', request);
+    await delay(20);
+    manager.disconnect();
+    return { record: records[0]!, loop: (manager as any).loop.options };
+  };
+  // Only `guards: false` used to arrive, so a bench side with skipped guards, or with planning off, played the default bot.
+  assert.ok((await run({})).record.tacticalRanking, 'planning is on by default');
+  assert.equal((await run({ planning: false })).record.tacticalRanking, undefined);
+  assert.deepEqual((await run({ guards: { skip: ['outhealed'], extra: [] } })).loop.guards, { skip: ['outhealed'], extra: [] });
+  assert.equal((await run({ guards: false })).record.tacticalRanking, undefined);
 });
 
 test('the battle timer is kept on for every battle we play, and never turned on when we are not choosing', async () => {
