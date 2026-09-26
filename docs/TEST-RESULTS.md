@@ -2759,8 +2759,8 @@ did nothing.
 
 ## Sucker Punch after it failed (2026-09-26)
 
-- In 2688242787 (a win), Sucker Punch failed six turns running against a Spiritomb, each time "already on the field
-  when chosen" by the review. Sucker Punch works only if the target attacks. The search takes the opponent's choice
+- In 2688242787 (a win), our Spiritomb used Sucker Punch six turns running into a Raichu-Alola that used Nasty Plot
+  each time, "already on the field when chosen" by the review. Sucker Punch works only if the target attacks. The search takes the opponent's choice
   as a best reply, so it went on expecting an attack the player had shown they would not make; the opponent model's
   Sucker Punch term is at most ±0.175 in log weight and needs eight observations to move.
 - New soft guard `suckerPunchReadFailed`: when our active used Sucker Punch or Thunderclap last turn against the
@@ -2768,3 +2768,4 @@ did nothing.
   move is penalised like the other soft guards (−2.1 in log weight). An attack that turn, a switch, or a turn of
   something else in between leaves it alone. Sucker Punch into a sleeping target is not covered because it is not a
   failure: Showdown checks the move the target chose, not whether it gets to use it.
+- On the logged game the guard fires on turns 17 to 21, five of the six; turn 16 was the first Sucker Punch.

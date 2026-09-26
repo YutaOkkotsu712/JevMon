@@ -1737,9 +1737,9 @@ export function pickedOffOnArrival(input: DecisionInput) {
 
 /**
  * Sucker Punch again into the Pokémon it just failed against. It works only if the target attacks, and a player who
- * has watched it fail has every reason to go on using status moves: six Sucker Punches in a row failed against a
- * Spiritomb that never attacked (2688242787). The search treats their choice as a best reply, so it went on expecting
- * an attack that the player had already shown they would not make.
+ * has watched it fail has every reason to go on using status moves: our Spiritomb used Sucker Punch six turns running
+ * into a Raichu-Alola that used Nasty Plot every time (2688242787). The search treats their choice as a best reply, so
+ * it went on expecting an attack that the player had already shown they would not make.
  *
  * Narrow: our active used Sucker Punch or Thunderclap last turn against the Pokémon still facing it, and that
  * Pokémon's own choice that turn was not an attack (a status move, a heal or a setup move). A switch brings in someone
