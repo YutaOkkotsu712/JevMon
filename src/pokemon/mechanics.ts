@@ -213,10 +213,19 @@ export function moveEffect(moveName: string, maxHP: number | null, weather: stri
   // to the second Jet Punch. Serene Grace makes it certain; Sheer Force removes it even though it is not a secondary.
   const listedSelfChance = (m.self as { chance?: number } | undefined)?.chance;
   const selfChance = typeof listedSelfChance === 'number' && listedSelfChance < 100 ? (sheerForce ? 0 : chance(listedSelfChance)!) : 100;
-  const chancedUserBoosts = selfChance > 0 && selfChance < 100 && m.self?.boosts ? m.self.boosts as Record<string, number> : undefined;
+  // Torch Song, Power-Up Punch, Rapid Spin and Flame Charge list their boost as a secondary on the user. A certain one is
+  // the move's own boost, as Swords Dance's is; a chance one (Charge Beam's 70%) is a boost only sometimes. Listed only
+  // among the secondaries, they got no setup projection, though Torch Song raises its Special Attack every hit.
+  const secondarySelf = sheerForce ? [] : (m.secondaries ?? []).filter(e => e.self?.boosts)
+    .map(e => ({ boosts: e.self!.boosts as Record<string, number>, chance: chance(e.chance ?? 100)! }));
+  const certainSecondary = Object.assign({}, ...secondarySelf.filter(e => e.chance >= 100).map(e => e.boosts)) as Record<string, number>;
+  const chancedSecondary = secondarySelf.find(e => e.chance > 0 && e.chance < 100);
+  const chancedUserBoosts = selfChance > 0 && selfChance < 100 && m.self?.boosts ? m.self.boosts as Record<string, number>
+    : chancedSecondary?.boosts;
+  const chancedPercent = selfChance > 0 && selfChance < 100 && m.self?.boosts ? selfChance : chancedSecondary?.chance ?? selfChance;
   // Scale Shot keeps its boosts under selfBoost, which applies after the final hit.
   const listedUserBoosts = { ...(self && m.boosts ? m.boosts : {}), ...(selfChance >= 100 ? m.self?.boosts ?? {} : {}), ...(m.selfBoost?.boosts ?? {}),
-    ...(undescribed[m.id]?.boosts ?? {}) } as Record<string,number>;
+    ...certainSecondary, ...(undescribed[m.id]?.boosts ?? {}) } as Record<string,number>;
   const effect = {
     healPercentOfMaxHP: heal,
     healHPIfKnown: heal !== undefined && maxHP ? Math.floor(maxHP * heal / 100) : undefined,
@@ -228,7 +237,7 @@ export function moveEffect(moveName: string, maxHP: number | null, weather: stri
     recoilPercentOfDamageDealt: fraction(m.recoil),
     userBoosts: selfStageChanges(user, listedUserBoosts),
     ...(Object.keys(listedUserBoosts).length ? { listedUserBoosts } : {}),
-    ...(chancedUserBoosts ? { userBoostsOnlySometimes: { boosts: chancedUserBoosts, chancePercent: selfChance } } : {}),
+    ...(chancedUserBoosts ? { userBoostsOnlySometimes: { boosts: chancedUserBoosts, chancePercent: chancedPercent } } : {}),
     costsPercentOfMaxHP: undescribed[m.id]?.costsPercentOfMaxHP,
     alsoDoes: undescribed[m.id]?.note,
     // Explosion's damage is not a free hit: it spends the user.

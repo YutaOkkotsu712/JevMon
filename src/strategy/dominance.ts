@@ -819,6 +819,10 @@ export function outhealed(input: DecisionInput) {
     if (move.category === 'Status' && (move.flags?.heal || move.sideCondition ||
         (['defog', 'courtchange', 'tidyup'].includes(move.id) && ourHazards))) continue;
     if (notForTheDamage.has(move.id)) continue;
+    // An attack that raises the stat it hits with, at least half the time, grows with every use: Torch Song's Special
+    // Attack climbs each hit until it outpaces the heal, where a plain attack never does.
+    const attackingStat = move.category === 'Physical' ? 'atk' : 'spa';
+    if ((move.secondaries ?? []).some(e => (e.chance ?? 100) >= 50 && ((e.self?.boosts as Record<string, number> | undefined)?.[attackingStat] ?? 0) > 0)) continue;
     result.set(action.id, { by: 'stall', reason: `${foe.species} has healed ${healed} times against ${me.species}, and each heal restores ${heal}% while our best hit, ${bestName}, does at most ${best}%; ${move.name} cannot outpace that, so switch or break the stall instead` });
   }
   return result;

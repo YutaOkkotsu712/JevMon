@@ -851,3 +851,26 @@ test('the legacy rules kept for the bench skip what the old rules skipped', () =
   sleep.feed('|-status|p1a: Misdreavus|slp'); sleep.feed('|turn|2');
   assert.equal(LEGACY_GUARDS.legacySleepSkip!(decide(sleep)).size, 4, 'every move of a sleeper that cannot wake');
 });
+
+test('an attack that boosts its user counts the boost, and outhealed lets a growing attack through', () => {
+  assert.deepEqual(moveEffect('Torch Song', 300)?.userBoosts, { spa: 1 }, 'Torch Song raises Special Attack every hit');
+  assert.deepEqual(moveEffect('Rapid Spin', 300)?.userBoosts, { spe: 1 });
+  assert.deepEqual(moveEffect('Charge Beam', 300)?.userBoostsOnlySometimes, { boosts: { spa: 1 }, chancePercent: 70 });
+  const forceful = { ability: 'Sheer Force', abilitySuppressed: false } as unknown as Parameters<typeof moveEffect>[3];
+  assert.equal(Object.keys(moveEffect('Torch Song', 300, null, forceful)?.userBoosts ?? {}).length, 0, 'Sheer Force takes the boost away');
+  // Skeledirge's Torch Song against a Recover Toxapex: each hit is stronger than the last, so it is not outhealed.
+  const roster = [ours('Skeledirge', 79, ['Torch Song', 'Flamethrower', 'Slack Off', 'Shadow Ball'], 'Unaware', 'Heavy-Duty Boots', 'Fairy'),
+    ours('Haxorus', 78, ['Dragon Dance', 'Earthquake', 'Close Combat', 'Scale Shot'], 'Mold Breaker', 'Loaded Dice', 'Fighting')];
+  const b = battle(roster, 'Toxapex', 88);
+  const recover = (turn: number) => { b.feed('|-damage|p2a: Foe|70/100'); b.feed('|move|p2a: Foe|Recover|p2a: Foe'); b.feed('|-heal|p2a: Foe|100/100'); b.feed(`|turn|${turn}`); };
+  recover(2); recover(3);
+  const input = decide(b), names = labels(input, outhealed(input));
+  assert.ok(names.includes('Flamethrower'), `a plain attack is still outhealed: ${names.join(', ')}`);
+  assert.ok(!names.includes('Torch Song'), 'Torch Song grows every hit');
+});
+
+test('a Future Sight announced on its user keeps the estimates', () => {
+  const b = battle([ours('Garchomp', 77, ['Earthquake', 'Dragon Claw'], 'Rough Skin', 'Loaded Dice', 'Steel')], 'Slowbro', 86);
+  b.feed('|move|p2a: Foe|Future Sight|p1a: Garchomp'); b.feed('|-start|p2a: Foe|move: Future Sight'); b.feed('|turn|2');
+  assert.equal(unsupportedReason(b.state, b.state.sides.p2.team[0]!), null);
+});

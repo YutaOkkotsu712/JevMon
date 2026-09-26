@@ -2526,3 +2526,19 @@ overruling the search, or a guard's fallback. Four fixes:
   ladder it also keeps Jev from tipping endgames: a decisive equilibrium passes the 0.7 share at which Jev is not asked.
 - `.env` now has `SEARCH_ENDGAME_POKEMON=4`, which solves positions with four Pokémon or fewer left on both sides
   together. It uses 8 worlds of 400 ms and reaches depth 4 on this position (185 ms), at no Jev cost.
+
+## Attacks that boost their user are setup too (2026-09-26, audit-v19)
+
+- Torch Song, Power-Up Punch, Mystical Power, Rapid Spin, Flame Charge, Trailblaze and Aqua Step keep their user boost
+  under a secondary (`secondary.self.boosts`), not under `self.boosts`. Two places missed it:
+  - **`moveEffect` gave them no `userBoosts`,** so Jev's payload had no "after its stat change" projection for them,
+    which Swords Dance gets. A certain secondary boost now counts as the move's own. A chance one (Charge Beam's 70%)
+    counts as a boost only sometimes. Sheer Force removes both.
+  - **`outhealed` treated Torch Song like Flamethrower.** A plain attack that cannot beat a heal never will, but one
+    that raises the stat it hits with grows each turn until it does. Attacks doing so at least half the time are now
+    left alone. Speed boosters are not, except Rapid Spin, which clears hazards.
+- Rapid Spin was already modelled in full by the engine (50 BP, +1 Speed, hazards cleared) and exempt from outhealed.
+- **A Future Sight marker is damage-neutral.** The `-start` announcing a Future Sight or Doom Desire marks its user,
+  and preflight found estimates on a Slowbro dropped for it.
+- 447 tests pass. Preflight over 40 games gives no warnings; the largest payload is 42,843 bytes, within the 44,000
+  budget.

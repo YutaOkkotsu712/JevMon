@@ -171,7 +171,9 @@ const modelledVolatile = (key: string) => damageNeutral.has(id(key)) || /^perish
   // Fly, Dig, Dive, Bounce and the Ghost moves stay unmodelled, since their user is out of reach.
   || chargingInReach.has(id(key));
 const chargingInReach = new Set(['meteorbeam', 'electroshot', 'solarbeam', 'solarblade', 'skullbash', 'skyattack', 'razorwind',
-  'freezeshock', 'iceburn', 'geomancy']);
+  'freezeshock', 'iceburn', 'geomancy',
+  // The -start announcing a Future Sight or Doom Desire marks its user; the hit itself lands later, from slot conditions.
+  'futuresight', 'doomdesire']);
 /**
  * Glaive Rush leaves its user taking double damage until it next moves, so a hit is doubled only if it lands first.
  * Our hit on their Glaive Rush user counts it only when we surely act first; their hit on ours counts it unless we
