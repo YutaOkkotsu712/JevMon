@@ -65,6 +65,20 @@ test('a forced replacement keeps Tera available for the next turn', () => {
     'a Tera actually spent before fainting remains spent');
 });
 
+test('a pivot\'s replacement comes in free once the opponent has moved, and the engine is told so', () => {
+  // After a slower U-turn the turn is over for them: the engine, told nothing, let them attack whatever came in.
+  const { b } = setup();
+  b.state.requestKind = 'switch';
+  const pivot = { moves: new Set<string>(), canSwitch: true, canTera: false, forcedSwitch: true };
+  const forceSwitch = () => toEngineState(b.state, 'p1', sampleWorld(b.state, 'p1', seeded(3)), pivot).state.split('/')[0]!.split('=')[22];
+  b.foe().lastActedTurn = b.state.turn - 1;
+  assert.equal(forceSwitch(), 'false', 'a faster U-turn: they have still to move, and may hit what comes in');
+  b.foe().lastActedTurn = b.state.turn;
+  assert.equal(forceSwitch(), 'true', 'a slower one: they have moved, so only our replacement is chosen');
+  b.me().fainted = true; b.me().hpPercent = 0; b.me().exactHP!.current = 0;
+  assert.equal(forceSwitch(), 'false', 'a fainted active already makes the engine offer them nothing');
+});
+
 test('engine output is parsed and mapped back onto our legal actions', () => {
   assert.deepEqual(parseSideOne('Total Iterations: 9\nside one: closecombat,4.5,9|magearna,1.0,3\nside two: x,1,1'),
     [{ name: 'closecombat', total: 4.5, visits: 9 }, { name: 'magearna', total: 1, visits: 3 }]);

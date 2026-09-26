@@ -244,12 +244,18 @@ function side(s: BattleState, sideId: SideId, known: boolean, world: World, lega
   // An opposing Wish carries no exact HP, so it heals half of its user's max HP in this world's sampled set.
   const wish = v.slotConditions.wish;
   const wishHP = wish ? wish.healsHP ?? Math.floor((built(team.find(p => p.id === wish.fromId)) ?? 0) / 2) : 0;
+  // A pivot's replacement (U-turn, Volt Switch, Flip Turn, Parting Shot) after the opponent has already moved comes in
+  // free: the turn is over for them. Told nothing, the engine let them attack whatever came in, which prices every slow
+  // pivot as if it cost the replacement a hit. A faster pivot leaves their move to come, which the engine plays as usual,
+  // and a fainted active already gets them no move.
+  const opposing = s.sides[sideId === 'p1' ? 'p2' : 'p1'], foe = opposing.team.find(p => p.id === opposing.activeId);
+  const freeReplacement = !!legal?.forcedSwitch && !!me && !me.fainted && !!foe && !foe.fainted && foe.lastActedTurn === s.turn;
   return { text: [...written, active, conditions, vols.map(x => `${x}:`).join(''), durations,
     vols.includes('SUBSTITUTE') ? subHP : 0,
     b('atk'), b('def'), b('spa'), b('spd'), b('spe'), b('accuracy'), b('evasion'),
     // The engine sets Wish to 2 and heals when it reaches 1, one step down per end of turn.
     ...(wish && wishHP > 0 && 2 - (s.turn - wish.setOnTurn) >= 1 ? [2 - (s.turn - wish.setOnTurn), wishHP] : [0, 0]),
-    ...futureSight, false, 'NONE', false, false, !!legal && !legal.canSwitch, lastUsed, false].join('='), team };
+    ...futureSight, freeReplacement, 'NONE', false, false, !!legal && !legal.canSwitch, lastUsed, false].join('='), team };
 }
 
 /** Our side is side one; the result names the Pokémon behind each engine switch so moves can be mapped back. */

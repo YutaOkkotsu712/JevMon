@@ -109,12 +109,12 @@ function truthWorld(state, ourSide, battle) {
 const engine = (state, ms) => new Promise(resolveRun => execFile(bin, ['monte-carlo-tree-search', '--state', state, '-t', String(ms)],
   { timeout: ms * 4 + 2000, maxBuffer: 1 << 20 }, (error, stdout) => resolveRun(error ? null : parseSideOne(stdout))));
 /** Each of our actions' mean score from the judge's pooled runs on the true position; null where it drew no visits. */
-async function judge(state, actions, battle) {
+async function judge(state, actions, world) {
   const side = state.mySide;
   const legal = { moves: new Set(actions.filter(a => a.kind === 'move').map(a => dex.moves.get(a.label.split(' + Tera')[0]).id)),
     canSwitch: actions.some(a => a.kind === 'switch'), canTera: actions.some(a => a.command.endsWith(' terastallize')),
     forcedSwitch: state.requestKind === 'switch' };
-  const engineState = toEngineState(state, side, truthWorld(state, side, battle), legal).state;
+  const engineState = toEngineState(state, side, world, legal).state;
   const runs = (await Promise.all(Array.from({ length: judgeRuns }, () => engine(engineState, judgeMs)))).filter(Boolean);
   const scores = {};
   for (const a of actions) {
@@ -132,7 +132,7 @@ const TRUSTED_VISITS = 1000;
  * One judged decision: what B played, the search's own top pick and the judge's best, and the rules that moved the
  * choice off the search's top. `ruleCost` is what those rules cost by the judge, when both scores are trusted.
  */
-function auditRow(seed, side, state, record, scores) {
+function auditRow(seed, side, state, record, scores, truth) {
   const values = record.search.values, label = id => record.legalActions.find(a => a.id === id)?.label ?? id;
   const top = Object.entries(values).sort((x, y) => (y[1].visitShare ?? 0) - (x[1].visitShare ?? 0))[0]?.[0];
   const chosen = record.selectedAction.id;
@@ -153,7 +153,11 @@ function auditRow(seed, side, state, record, scores) {
     chosen: { id: chosen, label: label(chosen), judge: scores[chosen], search: values[chosen] ?? null },
     top: { id: top, label: label(top), judge: scores[top], search: values[top] ?? null },
     best: best && { id: best, label: label(best), judge: scores[best], search: values[best] ?? null },
-    why: record.skippedDominatedMove?.reason ?? record.skippedCyclicSwitch?.reason ?? record.pivotInsteadOfSwitch?.reason ?? undefined };
+    why: record.skippedDominatedMove?.reason ?? record.skippedCyclicSwitch?.reason ?? record.pivotInsteadOfSwitch?.reason ?? undefined,
+    // A large miss keeps its position and the opponent's real sets, so it can be replayed: with the true sets at the
+    // bot's own budget, a miss that goes away was hidden information, and one that stays was the search.
+    ...(regret !== null && regret >= 0.05 ? { position: { state, legalActions: record.legalActions, search: values,
+      truth: { sets: [...truth.sets], unrevealed: truth.unrevealed } } } : {}) };
 }
 
 async function play(seed) {
@@ -185,7 +189,7 @@ async function play(seed) {
           stats.decisions++;
           const search = record.search;
           if (!search || record.legalActions.length < 2 || !request) return;
-          const raw = request, battle = stream.battle;
+          const raw = request, truth = truthWorld(state, side, stream.battle);
           gate = (async () => {
             const shadow = await shadowChoice(room, names[side], state, raw, { values: search.values, worldsSearched: search.worldsSearched, msTotal: search.msTotal });
             if (!shadow) { stats.shadowFailed++; return; }
@@ -194,7 +198,7 @@ async function play(seed) {
             let scores = null;
             if (a.id !== b.id) {
               stats.divergences++;
-              scores = await judge(state, record.legalActions, battle);
+              scores = await judge(state, record.legalActions, truth);
               const delta = scores[a.id] && scores[b.id] ? Math.round((scores[b.id].score - scores[a.id].score) * 1000) / 1000 : null;
               if (delta !== null) stats.judged++;
               appendFileSync(out, JSON.stringify({ divergence: true, seed, side, turn: state.turn, delta,
@@ -204,7 +208,7 @@ async function play(seed) {
                 changedByB: record.tacticalRanking?.from !== record.tacticalRanking?.to ? record.tacticalRanking : undefined,
                 skippedByA: shadow.skippedDominatedMove ?? shadow.skippedCyclicSwitch }) + '\n');
             }
-            if (args.audit) appendFileSync(out, JSON.stringify(auditRow(seed, side, state, record, scores ?? await judge(state, record.legalActions, battle))) + '\n');
+            if (args.audit) appendFileSync(out, JSON.stringify(auditRow(seed, side, state, record, scores ?? await judge(state, record.legalActions, truth), truth)) + '\n');
           })().catch(() => { stats.shadowFailed++; });
         } } });
     managers.push(manager);
