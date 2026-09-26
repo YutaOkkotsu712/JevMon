@@ -277,6 +277,37 @@ ladder bot runs (`--force` overrides this).
 **What it measures.** The bench measures search against search, without Jev. A change that wins here should help the
 live blend, which is 70% search, but that is an inference, not a measurement.
 
+**Reading a result near 50%.** It means "smaller than about 70 Elo", not "neutral". Most policy changes, such as a
+guard, the game plan or a ranking tweak, alter a few percent of decisions, usually between actions the search already
+rates within a hundredth of each other. They are worth a point or two of win rate, which needs thousands of games to
+see. Six to seven pairs in ten split one win each, so the teams decide most games and only the swept pairs carry the
+signal. Before trusting any A/B, check that the two sides actually played differently: a config the bot ignores looks
+exactly like a change that does nothing.
+
+## Measuring a policy change: the divergence test
+
+For a change to what the bot does with the search's result (guards, planning, the tactical ranking),
+`scripts/divergence.mjs` measures only the decisions the change touches. Both sides play policy B in self-play. At every
+decision, policy A is run on the same position with the same search result, so the only difference is the policy.
+Where the two choose differently, a judge scores both choices: poke-engine's tree search on the true position, with the
+opponent's real sets, for 2 × 1.5 s.
+
+```sh
+SIMULATOR_DIR=~/.cache/jevmon-sim node scripts/divergence.mjs --games 40 --name planning \
+  --a '{"planning":false}' --b '{"planning":true}'
+```
+
+It reports how often the policies differ, B's choice minus A's in the judge's win estimate with a 95% interval, and
+that converted to points of win rate per game. Results go to `logs/divergence/<name>.jsonl`, and a rerun resumes.
+
+- **Validity check.** Run it with A the same as B first: it must find no divergences. An A/A run found none in 159
+  decisions.
+- **Limits.** The judge is the same engine the bot searches with. It sees what hidden information and a short search
+  cost, but not a mistake in the engine's own mechanics, and guards written for those need the ladder or the bench.
+  Without Jev, it measures the policy on the search's own ranking, as the bench does.
+- **Search settings** (`worlds`, `msPerWorld` and the rest) are compared with the whole-game bench, since a different
+  search is not the same decision with a different policy.
+
 ## Lookahead search (experimental)
 
 Jev judges one turn at a time from the numbers in its payload. The strongest random-battle bots also look ahead:
