@@ -2802,3 +2802,21 @@ did nothing.
   option rose alike (about 0.09) and the choice on 2688264365 turn 15 did not move. It would also make a Zero Palafin
   fainting 40 cheaper. The search's pick there, a super-effective Choice Band Wave Crash for 42% before pivoting, is a
   defensible one.
+
+## A sleeper kept alive at a full Pokémon's cost, and a Nasty Plot the solver saw only with time (2026-09-26)
+
+- **2688281898 turn 16.** Conkeldurr, asleep at 19%, faced a +2 Life Orb Darkrai at 7% that had shown Hypnosis.
+  `savingTheDoomed` penalised both switches (Ursaring would lose at least 86% to Sludge Bomb), and `sleeperThrownAway`
+  penalised every Conkeldurr move (keep the sleeper for Sleep Clause). The two cancelled, the near-tie rule gave Jev
+  the pick, and his switch to a full Ursaring went through: Ursaring fainted, and the Life Orb recoil knocked Darkrai
+  out as it would have after the hit on Conkeldurr. The Sleep Clause shield had nothing to stop: the only sleep move
+  was Darkrai's, and it could not survive its own recoil. `sleeperThrownAway` now stands aside when the only revealed
+  sleep move belongs to the attacker, it holds Life Orb, and it is at 10% or less. The Magearna case it was built for
+  still holds. Across the logged games, 4 played switches are now skipped by `savingTheDoomed`, each a healthy Pokémon
+  sent into the hit that was knocking out a doomed one.
+- **Turns 17–20, Grumpig at +2 against Garganacl.** Rhydon was their last Pokémon, and at +4 Psychic knocks out both
+  Garganacl and Rhydon in one hit each. The endgame solver (8 worlds, 400 ms) split 54% Psychic, 46% Nasty Plot, Jev
+  put 71% on Psychic, and Grumpig attacked. Rerun three times each: at 400 ms Nasty Plot leads but narrowly (in one
+  run Psychic scored higher, which with Jev's vote plays Psychic); at 1,500 ms Nasty Plot scores 0.85–0.90 against
+  Psychic's 0.34–0.45 in all three, a gap Jev cannot outvote. The deeper search sees the double knockout.
+  `SEARCH_ENDGAME_MS=1500` costs about three seconds a decision, and only with four Pokémon or fewer left.

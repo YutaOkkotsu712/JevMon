@@ -1022,6 +1022,10 @@ const sleepMoves = new Set(['spore', 'sleeppowder', 'hypnosis', 'sing', 'lovelyk
  * Narrow: our active sleeps from a move rather than Rest, no other Pokémon of ours is asleep, a living opponent has
  * shown a sleep move, and one of their likely attacks knocks us out before we act at least half the time: a hit that
  * can miss, landing while we sleep on, or even if we wake whenever they move first. A switch must survive its entry.
+ * Not when the only sleep move belongs to the attacker and its Life Orb recoil knocks it out as it lands the hit: the
+ * shield then has nothing left to stop. Conkeldurr, asleep at 19%, was kept alive by sending a full Ursaring into a +2
+ * Darkrai's Sludge Bomb; Ursaring fainted, and the recoil took Darkrai, at 7%, as it would have after the hit on
+ * Conkeldurr (2688281898).
  */
 export function sleeperThrownAway(input: DecisionInput) {
   const result = new Map<string, { by: string; reason: string }>();
@@ -1041,6 +1045,9 @@ export function sleeperThrownAway(input: DecisionInput) {
     return { move: m.move, p: knockoutBefore(m.percentOfMaxHP, me.hpPercent!, (m.accuracyPercent ?? 100) / 100, 1) * (first ? 1 - wake : 1) };
   }).sort((a, b) => b.p - a.p)[0];
   if (!worst || worst.p < 0.5 || !escapable(input)) return result;
+  const sleepers = theirs.team.filter(p => !p.fainted && p.revealedMoves.some(m => sleepMoves.has(id(m))));
+  const lifeOrb = !foe.abilitySuppressed && id(foe.ability ?? '') === 'magicguard' ? false : id(foe.item ?? '') === 'lifeorb';
+  if (sleepers.length === 1 && sleepers[0]!.id === foe.id && lifeOrb && (foe.hpPercent ?? 100) <= 10) return result;
   const sleepMove = holder.revealedMoves.find(m => sleepMoves.has(id(m)))!;
   for (const action of input.legalActions) {
     if (action.kind !== 'move') continue;

@@ -465,6 +465,27 @@ test('our only sleeper is kept alive while the opponent still has a sleep move',
   assert.equal(sleeperThrownAway(setup(100)).size, 0, 'at full HP it survives the hit, so there is nothing to save');
 });
 
+test('a sleeper is not kept alive by feeding a healthy Pokémon to the same hit', () => {
+  // 2688281898: Conkeldurr asleep at 19% against a +2 Life Orb Darkrai; a full Ursaring went in to keep it alive and
+  // fainted to Sludge Bomb, and the recoil took Darkrai, at 7%, as it would have after the hit on Conkeldurr.
+  const conkeldurr = ours('Conkeldurr', 80, ['Facade', 'Close Combat', 'Mach Punch', 'Knock Off'], 'Guts', 'Flame Orb', 'Normal');
+  const setup = (second: ReturnType<typeof ours>, darkrai: number) => {
+    const roster = [conkeldurr, second];
+    const b = battle(roster, 'Darkrai', 79), hp = Math.round(conkeldurr.maxHP * 0.19);
+    b.feed('|move|p2a: Foe|Hypnosis|p1a: Conkeldurr'); b.feed('|-status|p1a: Conkeldurr|slp|[from] move: Hypnosis');
+    b.feed('|move|p2a: Foe|Nasty Plot|p2a: Foe'); b.feed('|-boost|p2a: Foe|spa|2'); b.feed('|turn|2');
+    b.feed('|move|p2a: Foe|Sludge Bomb|p1a: Conkeldurr'); b.feed(`|-damage|p1a: Conkeldurr|${hp}/${conkeldurr.maxHP} slp`);
+    b.feed(`|-damage|p2a: Foe|${darkrai}/100|[from] item: Life Orb`); b.feed('|turn|3');
+    return decide(b, hp);
+  };
+  const ursaring = ours('Ursaring', 84, ['Crunch', 'Close Combat', 'Swords Dance', 'Facade'], 'Quick Feet', 'Toxic Orb', 'Normal');
+  assert.equal(sleeperThrownAway(setup(ursaring, 7)).size, 0, 'at 7% Darkrai faints to its Life Orb as it hits: no sleep move is left to shield against');
+  // A switch-in has to survive the hit for the shield to be worth keeping: Corviknight takes nothing from Sludge Bomb.
+  const corviknight = ours('Corviknight', 81, ['Brave Bird', 'Roost', 'U-turn', 'Defog'], 'Pressure', 'Leftovers', 'Dragon');
+  assert.equal(sleeperThrownAway(setup(corviknight, 7)).size, 0, 'at 7% it still faints to its own recoil');
+  assert.ok(sleeperThrownAway(setup(corviknight, 60)).size > 0, 'at 60% it survives its recoil, and Hypnosis is still to come');
+});
+
 import { afterEntry } from '../src/strategy/entry.js';
 import { doomedReplacement } from '../src/strategy/dominance.js';
 
