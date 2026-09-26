@@ -2569,3 +2569,12 @@ overruling the search, or a guard's fallback. Four fixes:
 - New engine test; 233 unit and 691 battle-mechanics tests pass. The binary is built in `target-next` and is not
   promoted: the `fitted` self-play run is using the main binary. It goes live when that run ends, together with
   whichever weights the run decides on.
+
+## Running out of PP: measured, no change (2026-09-26)
+
+- cobblemon_eclipse plays long, stalling games, so we checked whether we lose by running moves out of PP. The search
+  already receives our real PP and an estimate of the opponent's (engineState.ts), so it does not waste PP within its lookahead.
+- In 395 logged games, one of our moves reached 0 PP in 14 (3.5%). Six of those were heals: Recover, Roost, Slack Off
+  and Strength Sap. Of the 11 with a recorded result we won 7 and lost 4; one loss was to cobblemon_eclipse
+  (2687731014, Zapdos out of Roost). PP running out is not costing games, so we are not budgeting PP over longer
+  spans.
