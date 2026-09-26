@@ -2684,3 +2684,42 @@ ceiling, all from 77eb20c.
   Toxic Spikes, Sticky Web, Defog, Rapid Spin or screens, and that was applied only to unseen slots. Set inference,
   move priors and likely moves now use the measured pair factors. On 4,000 generated teams the log-likelihood of
   each Pokémon's real team-limited moves went from −0.522 to −0.470.
+
+## The engine checked against the simulator, turn by turn (2026-09-26)
+
+- **`scripts/check-engine.mjs`.** It plays self-play games with a small search. On every turn both sides attack (no
+  switch, no pivot, nobody faints), it asks the engine what the two moves actually chosen can do from the true
+  position, the opponent's real sets included. Then it looks for the HP each active really lost or gained among the
+  engine's outcomes, allowing 9% of the damage in a branch for rolls. At every decision it also compares the
+  tracker's picture of both actives (boosts, status, HP) with the simulator's.
+- **The tracker agreed with the simulator** on every decision over 30 games. The first engine runs explained all but
+  2–7% of the turns compared. The rest were grouped by move, ability and item:
+  - **Sheer Force and Life Orb.** The engine applies abilities before items: Sheer Force cleared the move's
+    secondary effects, then Life Orb added its recoil anyway. Showdown takes the recoil away with the secondaries.
+    It showed up on Cetitan, Feraligatr and Tauros.
+  - **Tera Shell** did nothing: every hit on a full-HP Terapagos-Terastal was priced at full effectiveness, twice
+    what it takes.
+  - **Leftovers before poison.** Showdown heals before poison and burn damage, so a full-HP holder's Leftovers
+    restores nothing and the poison lands. The engine did it the other way round. Black Sludge on a non-Poison holder
+    took a sixteenth, capped by missing HP, where Showdown takes an eighth.
+  - **Cheek Pouch** (Greedent, Dedenne) was never modelled: a third of max HP on every berry.
+  - **Protosynthesis, Quark Drive and Stockpile** start as "protosynthesisatk" and the like and end under their
+    family name. The tracker kept the boost after it ended, into every estimate and search. A Great Tusk's Rapid Spin
+    did 53 where 66 was expected.
+  - What remains is approximation the engine makes on purpose: Triple Axel and Population Bomb as fixed hit
+    counts, and a single average roll.
+- **Also from the ability list.** Unnerve (the opponent's berries) and Sniper (critical hits at 2.25) were among the
+  12 generated abilities the engine never read. Both are now modelled.
+- Each fix has an engine or tracker test; 961 engine tests pass. The engine is built in `target-next` and promoted
+  with `npm run build:engine`.
+
+## The blend no longer rules out the search's most-visited action (2026-09-26)
+
+- The search pools each action's score over its worlds by visits, so a mean above the most-visited action's comes
+  from the worlds where that action was good. A switch to Ariados drew 33% of the visits at a mean of 0.908, beside
+  Thunder Wave's 60% at 0.457. The blend's 0.10 viability rule then left only the switch, and a judge with the real
+  sets put Thunder Wave 0.48 ahead.
+- Over 59 judged positions the rule moved a choice off the most-visited action only that once. The most-visited
+  action is now always eligible; the rule still keeps Jev from pulling toward what the search rates far lower.
+- Averaging each world's own mean did no better than pooling on the same positions (3 to 4), so the estimate is
+  unchanged.
