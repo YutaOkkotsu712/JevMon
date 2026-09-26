@@ -36,6 +36,8 @@ const { values: args } = parseArgs({ options: {
   // Judge every decision, not only divergences, and put each gap down to the rules that moved the choice off the
   // search's own top pick: a misplay finder.
   audit: { type: 'boolean', default: false },
+  // The engine the judge runs, when it must stay fixed while the bot's own changes: comparing two builds' regret.
+  'judge-bin': { type: 'string' },
 } });
 if (!process.env.SIMULATOR_DIR) throw new Error('Set SIMULATOR_DIR to a directory containing @pkmn/sim and @pkmn/randoms');
 const require = createRequire(resolve(process.env.SIMULATOR_DIR, 'package.json'));
@@ -106,7 +108,8 @@ function truthWorld(state, ourSide, battle) {
   return world;
 }
 
-const engine = (state, ms) => new Promise(resolveRun => execFile(bin, ['monte-carlo-tree-search', '--state', state, '-t', String(ms)],
+const judgeBin = args['judge-bin'] ?? bin;
+const engine = (state, ms) => new Promise(resolveRun => execFile(judgeBin, ['monte-carlo-tree-search', '--state', state, '-t', String(ms)],
   { timeout: ms * 4 + 2000, maxBuffer: 1 << 20 }, (error, stdout) => resolveRun(error ? null : parseSideOne(stdout))));
 /** Each of our actions' mean score from the judge's pooled runs on the true position; null where it drew no visits. */
 async function judge(state, actions, world) {
