@@ -29,22 +29,43 @@ function displayName(kind: 'items' | 'abilities', value: string): string {
   if (!entry.exists) throw new Error(`Unrecognised ${kind.slice(0, -1)}: ${value}`);
   return entry.name;
 }
+type Spread = { evs: Record<StatID, number>; ivs: Record<StatID, number> };
+/**
+ * Fits by species, level and stats, which never change within a battle, and the failures too: a forme that does not
+ * fit costs a full search of every IV and EV. Refitting on every damage calculation was over half of the game plan's
+ * time, and statForme fits each of our Pokémon twice per calculation.
+ */
+const spreads = new Map<string, Spread | string>();
 /**
  * Fit a spread to the private, unboosted stats we were given rather than guessing at them. Exported because
  * a form change recomputes its stats from the same spread against a different set of base stats.
  */
-export function fittedSpread(p: PokemonState, speciesName = canonicalSpecies(p.species)) {
+export function fittedSpread(p: PokemonState, speciesName = canonicalSpecies(p.species)): Spread {
+  const level = levelOf(p);
+  const actual = (stat: StatID) => stat === 'hp' ? p.exactHP?.max : p.stats?.[stat];
+  const key = `${speciesName}|${level}|${stats.map(actual).join('|')}`;
+  let fit = spreads.get(key);
+  if (fit === undefined) {
+    fit = fitSpread(speciesName, level, actual);
+    if (spreads.size >= 4096) spreads.clear();
+    spreads.set(key, fit);
+  }
+  if (typeof fit === 'string') throw new Error(fit);
+  return { evs: { ...fit.evs }, ivs: { ...fit.ivs } };
+}
+function fitSpread(speciesName: string, level: number, actual: (stat: StatID) => number | undefined): Spread | string {
   const evs = { ...neutral }, ivs = { hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31 };
+  const base = dex.species.get(speciesName).baseStats;
   for (const stat of stats) {
-    const actual = stat === 'hp' ? p.exactHP?.max : p.stats[stat];
-    if (actual === undefined) throw new Error('Missing private stats');
+    const target = actual(stat);
+    if (target === undefined) return 'Missing private stats';
     let found = false;
     for (let iv = 31; iv >= 0 && !found; iv--) for (let ev = 85; ev >= 0; ev--) {
-      if (calcStat(9, stat, dex.species.get(speciesName).baseStats[stat], iv, ev, levelOf(p), 'Serious') === actual) {
+      if (calcStat(9, stat, base[stat], iv, ev, level, 'Serious') === target) {
         ivs[stat] = iv; evs[stat] = ev; found = true; break;
       }
     }
-    if (!found) throw new Error('Stats outside supported random spread');
+    if (!found) return 'Stats outside supported random spread';
   }
   return { evs, ivs };
 }
