@@ -259,6 +259,14 @@ export class DecisionLoop {
         if (plain && actions.some(x => x.id === plain) && search.values[plain]?.meanScore != null &&
             (search.values[plain]?.visitShare ?? 0) >= (search.values[a.id]?.visitShare ?? 0)) ranking = { ...ranking, [a.id]: 0 };
       }
+      // A fallback is a second choice, and Tera is spent once: it is taken there only when the search's own first choice
+      // was a Tera. With a switch to Goodra-Hisui vetoed as a cycle, the fallback spent Clodsire's Tera Steel on a Recover
+      // at 87%, while the search's first choice had been the switch, and Iron Hands came in to hit the new Steel type
+      // (2688089013). Six of 307 logged fallbacks spent Tera that way. Left at zero, a Tera stays a last resort.
+      const searchTop = Object.entries(search.values).sort((x, y) => (y[1].visitShare ?? 0) - (x[1].visitShare ?? 0))[0]?.[0];
+      if (ranking && !searchTop?.endsWith('-terastallize')) {
+        for (const a of actions) if (a.id.endsWith('-terastallize') && a.id !== chosen) ranking = { ...ranking, [a.id]: 0 };
+      }
     }
     let action = validateAction(request, chosen);
     let pivoted: DecisionRecord['pivotInsteadOfSwitch'];

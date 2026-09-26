@@ -2542,3 +2542,17 @@ overruling the search, or a guard's fallback. Four fixes:
   and preflight found estimates on a Slowbro dropped for it.
 - 447 tests pass. Preflight over 40 games gives no warnings; the largest payload is 42,843 bytes, within the 44,000
   budget.
+
+## A guard's fallback spends no Tera unless the search wanted one (2026-09-26, audit-v20)
+
+- In 2688089013 Clodsire, at 87% against a 20% Mesprit, was to switch to Goodra-Hisui: the blend's pick, and the
+  search's top on 28% of visits. The cyclic-switch guard vetoed it: that switch had twice led to Iron Hands and a
+  switch straight back. The fallback then took the next blended option, Recover + Tera Steel (0.158, ahead of a
+  switch to Sceptile at 0.137). Tera went on a heal at 87%, and Iron Hands came in to hit the new Steel type.
+- The audit-v9 fallback Tera rule let it through, because the search had backed Tera Steel over plain Recover (19%
+  of visits against 5%). But the fallback is a second choice, and the search's first choice was not a Tera.
+- A guard's fallback now leaves every Tera at zero unless the search's top action is itself a Tera. A Tera stays a
+  last resort when nothing else is left.
+- Across the logs, 6 of 307 fallbacks spent Tera that way (3–3), including Sawsbuck's Double-Edge + Tera Normal and
+  this Clodsire.
+- A DecisionLoop test covers it. 448 pass.

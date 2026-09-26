@@ -202,3 +202,28 @@ test('a guard\'s fallback does not spend a Tera the search visited less than the
   assert.equal(records[0]!.skippedCyclicSwitch?.from, 'switch-1');
   assert.equal(records[0]!.selectedAction.id, 'move-1', 'Shadow Ball without the Tera the search did not back');
 });
+
+test('a guard fallback spends no Tera unless the search itself wanted one', async () => {
+  // 2688089013: a cyclic switch vetoed, the fallback spent Clodsire's Tera Steel on a Recover at 87%; the search's own
+  // first choice had been the switch.
+  const b = pingPong();
+  const records: DecisionRecord[] = [];
+  const provider: DecisionProvider = { async chooseAction(): Promise<DecisionResult> {
+    return { chosenAction: 'switch-1', provider: 'jev', confidence: 0.5,
+      probabilities: { 'switch-1': 0.5, 'move-1-terastallize': 0.3, 'move-1': 0.1, 'move-2': 0.1 } };
+  } };
+  const values = { 'switch-1': { visitShare: 0.5, meanScore: 0.5 }, 'move-1-terastallize': { visitShare: 0.25, meanScore: 0.49 },
+    'move-1': { visitShare: 0.1, meanScore: 0.45 }, 'move-2': { visitShare: 0.15, meanScore: 0.47 } };
+  const loop = new DecisionLoop({ room, username: 'Test Bot', dryRun: true, provider, send: () => true,
+    state: () => b.state, onStatus: () => {}, onDecision: r => records.push(r),
+    search: { mode: 'blend', weight: 0.7, overrideMargin: 0.03, timeoutMs: 1000, run: async () => ({ values, worldsSearched: 16, msTotal: 5 }) } });
+  loop.request(JSON.stringify({ rqid: 11,
+    active: [{ moves: [{ move: 'Shadow Ball', id: 'shadowball' }, { move: 'Draco Meteor', id: 'dracometeor' }], canTerastallize: 'Ghost' }],
+    side: { id: 'p1', name: 'Test Bot', pokemon: [
+      { ident: 'p1: Bronzong', details: 'Bronzong, L88', condition: '261/261', active: false },
+      { ident: 'p1: Dragapult', details: 'Dragapult, L78, M', condition: '265/265', active: true }] } }));
+  await new Promise(resolve => setTimeout(resolve, 30));
+  loop.stop();
+  assert.equal(records[0]!.skippedCyclicSwitch?.from, 'switch-1');
+  assert.ok(!records[0]!.selectedAction.id.endsWith('-terastallize'), `no Tera as a second choice: ${records[0]!.selectedAction.id}`);
+});
