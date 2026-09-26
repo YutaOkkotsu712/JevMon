@@ -148,6 +148,8 @@ test('a stall guard cannot fall through to Dragon Dance against the last Unaware
   b.me().boosts = { atk: 1, spe: 1 };
   b.me().hpPercent = 8;
   b.me().exactHP!.current = 22;
+  // Burned, Earthquake does well under what Slack Off restores, so the stall is a real one.
+  b.me().status = 'brn';
   b.foe().hpPercent = 64;
   b.foe().teraType = 'Water'; b.foe().terastallized = true;
   b.foe().revealedMoves = ['Slack Off', 'Torch Song'];

@@ -47,14 +47,32 @@ test('outhealed counts what a healer loses every turn, and leaves the moves that
   assert.equal(outhealed(input).size, 0, 'a healer losing more each turn than it heals is not out-healing us');
 });
 
+test('a healer that only keeps level has no turns to spare, so attacking it is not called out-healed', () => {
+  // Self-play seed 108: Slack Off's 50% against Brave Bird's 45% had Staraptor switched to Mew, and the judge put Brave
+  // Bird 0.047 ahead. Hippowdon must heal every turn to keep level, spending its PP and never hitting back.
+  const stall = (defense: number) => {
+    const b = battle([ours('Staraptor', 84, ['Brave Bird', 'Close Combat', 'Double-Edge', 'U-turn'], 'Reckless', 'Choice Band', 'Fighting'),
+      ours('Corviknight', 83, ['Brave Bird', 'Body Press', 'Roost', 'Defog'], 'Pressure', 'Leftovers', 'Dragon')], 'Hippowdon', 84);
+    b.foe().revealedMoves = ['Earthquake'];
+    if (defense) b.feed(`|-boost|p2a: Foe|def|${defense}`);
+    b.feed('|-damage|p2a: Foe|55/100');
+    for (const turn of [2, 3]) { b.feed('|move|p2a: Foe|Slack Off|p2a: Foe'); b.feed('|-heal|p2a: Foe|100/100'); b.feed('|-damage|p2a: Foe|55/100'); b.feed(`|turn|${turn}`); }
+    return decide(b);
+  };
+  const even = stall(0);
+  assert.ok(!labels(even, outhealed(even)).includes('Brave Bird'), 'Slack Off only just keeps pace with Brave Bird');
+  const walled = stall(4);
+  assert.ok(labels(walled, outhealed(walled)).includes('Brave Bird'), 'behind +4 Defense it heals with turns to spare');
+});
+
 test('outhealed stands down when the only way out is a switch the healer beats', () => {
   // Self-play seed 11: Dusknoir's Poltergeist into a Shore Up Palossand was skipped three turns running for Bastiodon,
   // four times weak to its Earth Power. The judge put Poltergeist 0.07 to 0.13 ahead each time.
   const stall = (roster: ReturnType<typeof ours>[]) => {
     const b = battle(roster, 'Palossand', 90);
     b.foe().revealedMoves = ['Earth Power'];
-    // Behind +2 Defense, Poltergeist does under the half Shore Up restores, as it did in that game.
-    b.feed('|-boost|p2a: Foe|def|2'); b.feed('|-damage|p2a: Foe|55/100');
+    // Behind +4 Defense Shore Up clearly outpaces Poltergeist, so only the way out decides.
+    b.feed('|-boost|p2a: Foe|def|4'); b.feed('|-damage|p2a: Foe|55/100');
     for (const turn of [2, 3]) { b.feed('|move|p2a: Foe|Shore Up|p2a: Foe'); b.feed('|-heal|p2a: Foe|100/100'); b.feed('|-damage|p2a: Foe|62/100'); b.feed(`|turn|${turn}`); }
     return b;
   };
@@ -506,6 +524,8 @@ test('heals against the same Pokémon count across switches, and Taunt stands in
   const roster = [ours('Electrode', 88, ['Taunt', 'Volt Switch', 'Thunderbolt', 'Tera Blast'], 'Aftermath', 'Life Orb', 'Ice'),
     ours('Hitmontop', 88, ['Close Combat', 'Triple Axel', 'Bulk Up', 'Rapid Spin'], 'Intimidate', 'Leftovers', 'Fighting')];
   const b = battle(roster, 'Chimecho', 97);
+  // As in that game, Calm Mind: at +2 Special Defense Recover clearly outpaces Thunderbolt.
+  b.feed('|-boost|p2a: Foe|spd|2');
   const recover = (turn: number) => { b.feed('|move|p2a: Foe|Recover|p2a: Foe'); b.feed('|-heal|p2a: Foe|90/100'); b.feed(`|turn|${turn}`); };
   recover(2); recover(3);
   const top = b.state.sides.p1.team[1]!, electrode = b.state.sides.p1.team[0]!;

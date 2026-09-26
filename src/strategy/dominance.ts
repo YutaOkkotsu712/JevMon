@@ -768,6 +768,8 @@ export function healingOverAKnockout(input: DecisionInput) {
   return result;
 }
 
+/** How far a heal must outpace what the healer takes each turn before our attacks are called out-healed. */
+const OUTPACE = 1.5;
 /** Moves that break a healing stall rather than feed it: a status that chips or cripples, anything that stops the heal. */
 const stallBreakers = new Set(['taunt', 'encore', 'healblock', 'psychicnoise', 'torment', 'disable']);
 /** Attacks used for what they do besides damage: hazard removal, forcing a switch, clearing boosts. */
@@ -836,7 +838,17 @@ export function outhealed(input: DecisionInput) {
   // Leftovers never makes a stall of one that is not.
   let chip = 0;
   try { const net = residuals(s, foe, foeSide)?.perTurnPercentOfMaxHP ?? 0; chip = Math.max(0, -(Array.isArray(net) ? net[0]! : net)); } catch { chip = 0; }
-  if (best + chip >= heal) return result;
+  // Per turn. Wish lands its half a turn later and a second fails while one is pending, so it heals at most every other
+  // turn, and beside Protect only every other one of our hits lands. A healer is only out-healing us when it has turns to
+  // spare: one that must heal every turn to keep level spends its PP on it, never hits us, and a critical hit breaks it.
+  // So its heal must outpace what it takes by half again. Illumise's Roost against Gurdurr's 32% and Scream Tail's Wish
+  // and Protect against a 20% Thunderbolt clear that; a Slack Off Hippowdon against a 45% Brave Bird, and Wish against
+  // 34% plus 13% of chip, do not, and in a 10-game judge audit attacking was worth 0.047 and 0.057 to 0.125 more there.
+  const direct = Math.max(0, ...foe.revealedMoves.filter(m => id(m) !== 'wish').map(m => id(m) === 'strengthsap' ? sap() : healPercentNow(m, s.field.weather) ?? 0));
+  const wish = foe.revealedMoves.some(m => id(m) === 'wish');
+  const shielded = foe.revealedMoves.some(m => protectMoves.has(id(m)));
+  const outpaces = (rate: number, taken: number) => rate > 0 && rate >= OUTPACE * taken;
+  if (!outpaces(direct, best + chip) && !(wish && outpaces(25, best * (shielded ? 0.5 : 1) + chip))) return result;
   const bestName = moves.find(m => (m.range?.percentOfMaxHP[1] ?? -1) === best)?.move.name ?? 'our best attack';
   const ourHazards = Object.values(ours.hazards ?? {}).some(n => (n ?? 0) > 0);
   const holds = (volatile: string) => Object.keys(foe.volatiles).some(k => id(k) === volatile);
