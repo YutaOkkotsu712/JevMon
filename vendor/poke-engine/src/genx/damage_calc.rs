@@ -629,6 +629,10 @@ pub fn calculate_damage(
     }
 
     crit_damage *= CRIT_MULTIPLIER;
+    // Sniper raises a critical hit's multiplier by half again: 2.25 in place of 1.5.
+    if attacker.ability == Abilities::SNIPER {
+        crit_damage *= 1.5;
+    }
 
     match _damage_rolls {
         DamageRolls::Average => {

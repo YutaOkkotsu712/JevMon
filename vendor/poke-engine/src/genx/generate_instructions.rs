@@ -29,7 +29,7 @@ use super::damage_calc::calculate_futuresight_damage;
 use super::damage_calc::{calculate_damage, type_effectiveness_modifier, DamageRolls};
 use super::items::{
     item_before_move, item_end_of_turn, item_modify_attack_against, item_modify_attack_being_used,
-    item_on_switch_in, Items,
+    item_on_switch_in, unnerves, Items,
 };
 use super::state::{MoveChoice, PokemonVolatileStatus, Terrain, Weather};
 use crate::choices::{Choice, MoveCategory};
@@ -899,18 +899,27 @@ fn get_instructions_from_status_effects(
         return;
     }
 
+    // Against Unnerve the target cannot eat its Lum or Chesto Berry to shake the status off.
+    let unnerved = unnerves(
+        state
+            .get_side_immutable(&target_side_ref.get_other_side())
+            .get_active_immutable(),
+    );
     let target_side = state.get_side(&target_side_ref);
     let target_side_active = target_side.active_index;
     let target_pkmn = target_side.get_active();
 
-    let instruction = if target_pkmn.item == Items::LUMBERRY {
+    let instruction = if target_pkmn.item == Items::LUMBERRY && !unnerved {
         target_pkmn.item = Items::NONE;
         Instruction::ChangeItem(ChangeItemInstruction {
             side_ref: target_side_ref,
             current_item: Items::LUMBERRY,
             new_item: Items::NONE,
         })
-    } else if target_pkmn.item == Items::CHESTOBERRY && status.status == PokemonStatus::SLEEP {
+    } else if target_pkmn.item == Items::CHESTOBERRY
+        && status.status == PokemonStatus::SLEEP
+        && !unnerved
+    {
         target_pkmn.item = Items::NONE;
         Instruction::ChangeItem(ChangeItemInstruction {
             side_ref: target_side_ref,

@@ -137,6 +137,40 @@ fn test_branch_on_crit() {
 }
 
 #[test]
+fn test_sniper_crit_does_two_and_a_quarter_times() {
+    let mut state = State::default();
+    state.side_two.get_active().hp = 100;
+    state.side_one.get_active().ability = Abilities::SNIPER;
+    state
+        .side_one
+        .get_active()
+        .replace_move(PokemonMoveIndex::M0, Choices::WATERGUN);
+    state
+        .side_two
+        .get_active()
+        .replace_move(PokemonMoveIndex::M0, Choices::SPLASH);
+
+    let vec_of_instructions = generate_instructions_from_move_pair(
+        &mut state,
+        &MoveChoice::Move(PokemonMoveIndex::M0),
+        &MoveChoice::Move(PokemonMoveIndex::M0),
+        true,
+    );
+
+    let crit = vec_of_instructions
+        .iter()
+        .find(|i| (i.percentage - 100.0 * BASE_CRIT_CHANCE).abs() < 0.001)
+        .expect("a crit branch");
+    assert_eq!(
+        crit.instruction_list,
+        vec![Instruction::Damage(DamageInstruction {
+            side_ref: SideReference::SideTwo,
+            damage_amount: 72,
+        })]
+    );
+}
+
+#[test]
 fn test_highcrit_move() {
     let mut state = State::default();
     state.side_two.get_active().hp = 100;
@@ -989,6 +1023,60 @@ fn test_bellydrum_with_sitrus_berry_and_gluttony_at_even_amount_of_max_hp() {
         ],
     }];
     assert_eq!(expected_instructions, vec_of_instructions);
+}
+
+#[test]
+fn test_unnerve_keeps_the_opponent_from_eating_its_sitrus_berry() {
+    let mut state = State::default();
+    state.side_one.get_active().hp = 100;
+    state.side_one.get_active().maxhp = 100;
+    state.side_one.get_active().ability = Abilities::GLUTTONY;
+    state.side_one.get_active().item = Items::SITRUSBERRY;
+    state.side_two.get_active().ability = Abilities::UNNERVE;
+
+    let vec_of_instructions = set_moves_on_pkmn_and_call_generate_instructions(
+        &mut state,
+        Choices::BELLYDRUM,
+        Choices::SPLASH,
+    );
+
+    let expected_instructions = vec![StateInstructions {
+        percentage: 100.0,
+        instruction_list: vec![
+            Instruction::Damage(DamageInstruction {
+                side_ref: SideReference::SideOne,
+                damage_amount: 50,
+            }),
+            Instruction::Boost(BoostInstruction {
+                side_ref: SideReference::SideOne,
+                stat: PokemonBoostableStat::Attack,
+                amount: 6,
+            }),
+        ],
+    }];
+    assert_eq!(expected_instructions, vec_of_instructions);
+}
+
+#[test]
+fn test_unnerve_keeps_a_lum_berry_from_curing_the_status() {
+    let mut state = State::default();
+    state.side_two.get_active().item = Items::LUMBERRY;
+    state.side_one.get_active().ability = Abilities::UNNERVE;
+
+    let vec_of_instructions = set_moves_on_pkmn_and_call_generate_instructions(
+        &mut state,
+        Choices::THUNDERWAVE,
+        Choices::SPLASH,
+    );
+
+    assert!(vec_of_instructions.iter().all(|i| !i
+        .instruction_list
+        .iter()
+        .any(|x| matches!(x, Instruction::ChangeItem(_)))));
+    assert!(vec_of_instructions.iter().any(|i| i
+        .instruction_list
+        .iter()
+        .any(|x| matches!(x, Instruction::ChangeStatus(_)))));
 }
 
 #[test]

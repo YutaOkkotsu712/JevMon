@@ -302,6 +302,58 @@ pub fn get_choice_move_disable_instructions(
     moves_to_disable
 }
 
+/// Unnerve and As One keep the other side from eating berries while their holder is out.
+pub fn unnerves(pkmn: &Pokemon) -> bool {
+    matches!(
+        pkmn.ability,
+        Abilities::UNNERVE | Abilities::ASONEGLASTRIER | Abilities::ASONESPECTRIER
+    )
+}
+
+pub fn is_berry(item: Items) -> bool {
+    matches!(
+        item,
+        Items::BABIRIBERRY
+            | Items::CHARTIBERRY
+            | Items::CHILANBERRY
+            | Items::CHOPLEBERRY
+            | Items::COBABERRY
+            | Items::COLBURBERRY
+            | Items::CUSTAPBERRY
+            | Items::HABANBERRY
+            | Items::KASIBBERRY
+            | Items::KEBIABERRY
+            | Items::OCCABERRY
+            | Items::PASSHOBERRY
+            | Items::PAYAPABERRY
+            | Items::RINDOBERRY
+            | Items::ROSELIBERRY
+            | Items::SHUCABERRY
+            | Items::TANGABERRY
+            | Items::WACANBERRY
+            | Items::YACHEBERRY
+            | Items::ASPEARBERRY
+            | Items::CHERIBERRY
+            | Items::CHESTOBERRY
+            | Items::LUMBERRY
+            | Items::PECHABERRY
+            | Items::RAWSTBERRY
+            | Items::SITRUSBERRY
+            | Items::PETAYABERRY
+            | Items::SALACBERRY
+            | Items::LIECHIBERRY
+    )
+}
+
+/// The item as it acts now: a berry its holder cannot eat, against Unnerve, acts as none.
+fn usable_item(holder: &Pokemon, opponent: &Pokemon) -> Items {
+    if is_berry(holder.item) && unnerves(opponent) {
+        Items::NONE
+    } else {
+        holder.item
+    }
+}
+
 fn damage_reduction_berry(
     defending_pkmn: &mut Pokemon,
     attacking_side_ref: &SideReference,
@@ -469,7 +521,7 @@ pub fn item_before_move(
     let (attacking_side, defending_side) = state.get_both_sides(side_ref);
     let active_pkmn = attacking_side.get_active();
     let defending_pkmn = defending_side.get_active();
-    match defending_pkmn.item {
+    match usable_item(defending_pkmn, active_pkmn) {
         Items::CHOPLEBERRY => damage_reduction_berry(
             defending_pkmn,
             side_ref,
@@ -622,7 +674,7 @@ pub fn item_before_move(
         ),
         _ => {}
     }
-    match active_pkmn.item {
+    match usable_item(active_pkmn, defending_pkmn) {
         Items::NORMALGEM => power_up_gem(
             side_ref,
             active_pkmn,
@@ -907,9 +959,13 @@ pub fn item_end_of_turn(
     side_ref: &SideReference,
     instructions: &mut StateInstructions,
 ) {
-    let attacking_side = state.get_side(side_ref);
+    let (attacking_side, defending_side) = state.get_both_sides(side_ref);
+    let item = usable_item(
+        attacking_side.get_active_immutable(),
+        defending_side.get_active_immutable(),
+    );
     let active_pkmn = attacking_side.get_active();
-    match active_pkmn.item {
+    match item {
         Items::LUMBERRY if active_pkmn.status != PokemonStatus::NONE => {
             lum_berry(side_ref, attacking_side, instructions)
         }
