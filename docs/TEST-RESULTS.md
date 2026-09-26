@@ -2507,3 +2507,22 @@ overruling the search, or a guard's fallback. Four fixes:
 - **The engine has no gaps.** 511 sampled positions rebuilt with no errors and no placeholder Pokémon. Cosmetic forms
   (Alcremie, Vivillon) reach the engine under their base species, with the same stats.
 - Preflight over 60 games gives no warnings and no unavailable estimates. 445 tests pass.
+
+## Endgame solver switched on for the ladder (2026-09-26)
+
+- In 2688072083 we had three left (Pikachu 49%, a Terastallized Terapagos-Stellar 50%, Drednaw 35% and paralysed)
+  against a full-HP Life Orb Gengar that outsped all three.
+  - On turn 42 the blend switched Pikachu out to Terapagos, which took 37% on entry, then fell to the next Sludge Wave
+    without moving. Pikachu and Drednaw followed.
+  - Terapagos's Dark Pulse does 67–79%. Arriving free at 50% it would have survived one hit and left Gengar at about
+    1–13%, and Life Orb recoil on Gengar's next attack finishes it about three times in four, with Drednaw still
+    standing.
+  - The MCTS search had Drednaw on top by visits (28%, with Terapagos at 21%). Jev's 0.37 on Terapagos, weighted at
+    0.3, carried the blend.
+- The endgame solver (expectiminimax on the root matrix, depths 2 to 5) put its whole equilibrium on switching to
+  Drednaw at every depth: give up the paralysed Pokémon that can never move first, and keep Terapagos's HP for Dark
+  Pulse. The search values HP about equally across our Pokémon; the solver sees what each can still do.
+- Self-play had measured the solver neutral (`endgame4`, 51.0% [44–58] over 200 games), so it was left off. On the
+  ladder it also keeps Jev from tipping endgames: a decisive equilibrium passes the 0.7 share at which Jev is not asked.
+- `.env` now has `SEARCH_ENDGAME_POKEMON=4`, which solves positions with four Pokémon or fewer left on both sides
+  together. It uses 8 worlds of 400 ms and reaches depth 4 on this position (185 ms), at no Jev cost.
