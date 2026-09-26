@@ -95,7 +95,11 @@ export function blendChoice(actions: BattleAction[], prior: Record<string, numbe
   // that search valued 0.17 lower, despite a 0.006 lead in the raw blend.
   const scored = actions.filter(a => values[a.id]?.meanScore != null && share(a.id) >= 0.01);
   const topScore = scored.length ? Math.max(...scored.map(a => values[a.id]!.meanScore!)) : null;
-  const viable = topScore === null ? actions : actions.filter(a =>
+  // The search's most-visited action is always in: a mean above it is pooled over worlds by visits, so it comes from the
+  // worlds where that action was good. A switch to Ariados drew 33% of the visits at a mean of 0.908 beside Thunder
+  // Wave's 60% at 0.457, and ruled Thunder Wave out; a judge with the real sets put Thunder Wave 0.48 ahead.
+  const mostVisited = actions.reduce((x, a) => (share(a.id) > share(x.id) ? a : x));
+  const viable = topScore === null ? actions : actions.filter(a => a.id === mostVisited.id ||
     values[a.id]?.meanScore == null || values[a.id]!.meanScore! >= topScore - 0.10);
   const best = viable.reduce((x, a) => (blended[a.id]! > blended[x.id]! ? a : x));
   if (!(blended[best.id]! > 0)) return { blended };

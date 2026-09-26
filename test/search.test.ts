@@ -65,6 +65,15 @@ test('a forced replacement keeps Tera available for the next turn', () => {
     'a Tera actually spent before fainting remains spent');
 });
 
+test('the blend never rules out the search\'s most-visited action on a mean pooled from other worlds', () => {
+  // Self-play seed 205: a switch to Ariados drew 33% of the visits at a pooled mean of 0.908, Thunder Wave 60% at 0.457.
+  const actions = setup().actions;
+  const [twave, other] = [actions[0]!, actions.find(a => a.kind === 'switch')!];
+  const values = Object.fromEntries(actions.map(a => [a.id, a.id === twave.id ? { visitShare: 0.6, meanScore: 0.457 }
+    : a.id === other.id ? { visitShare: 0.33, meanScore: 0.908 } : { visitShare: 0.02, meanScore: 0.27 }]));
+  assert.equal(blendChoice(actions, undefined, undefined, values, 1, 0).pick?.chosen, twave.id);
+});
+
 test('a pivot\'s replacement comes in free once the opponent has moved, and the engine is told so', () => {
   // After a slower U-turn the turn is over for them: the engine, told nothing, let them attack whatever came in.
   const { b } = setup();

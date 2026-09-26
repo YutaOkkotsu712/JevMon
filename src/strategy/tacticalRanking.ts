@@ -101,7 +101,8 @@ export function rankTacticalChoices(input: DecisionInput, base: Record<string, n
     // had just held (2688081115).
     if (a.id === chosen) return [a.id, Math.max(0.0001, anchor) * Math.exp(c?.logAdjustment ?? 0)];
     const value = input.search?.[a.id]?.meanScore;
-    const viable = value == null || value >= bestScore - 0.1;
+    // As in the blend: the search's most-visited action stays in whatever the pooled means say.
+    const viable = value == null || value >= bestScore - 0.1 || a.id === searchTop;
     const tera = a.id.endsWith('-terastallize');
     // From a plain choice, a Tera is reachable only as a rescue that is also the search's own first choice, the rule the
     // guard fallback keeps: a rescue on 7% of visits would have spent Tera Poison over a Knock Off (2688074287).
