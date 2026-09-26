@@ -212,20 +212,23 @@ export class DecisionLoop {
     if (!actions.length) { this.options.onStatus('no request-supported actions; waiting'); return; }
     const start = performance.now();
     // Lookahead first and bounded, so its verdict can reach the provider; a slow or failed search is simply absent.
-    let search: SearchResult = null;
-    if (this.options.search) {
-      const { run, timeoutMs } = this.options.search;
-      search = await Promise.race([run(structuredClone(this.options.state()), structuredClone(actions)).catch(() => null),
-        new Promise<null>(resolve => setTimeout(() => resolve(null), timeoutMs))]);
-      if (version !== this.revision || this.stopped) return;
-    }
-    let chosen: unknown, fallback = false;
+    const searching = this.options.search ? Promise.race([
+      this.options.search.run(structuredClone(this.options.state()), structuredClone(actions)).catch(() => null),
+      new Promise<null>(resolve => setTimeout(() => resolve(null), this.options.search!.timeoutMs))]) : null;
+    // The plan is built while the engine searches in its own processes, rather than after: it runs on this thread alone,
+    // and on the same position.
     const planning = this.options.planning !== false && this.options.guards !== false;
     let gamePlan: GamePlan | null = null;
     if (planning && actions.length > 1) {
       try { gamePlan = buildGamePlan({ state: this.options.state(), legalActions: actions, request }); }
       catch { this.options.onStatus('game plan unavailable; using search and existing tactical facts'); }
     }
+    let search: SearchResult = null;
+    if (searching) {
+      search = await searching;
+      if (version !== this.revision || this.stopped) return;
+    }
+    let chosen: unknown, fallback = false;
     let providerResult: DecisionResult | undefined;
     // Each provider call spends credit. Two turns are settled without one: a single legal action, and a search so sure
     // of one action that the blend follows it whatever the provider says. Across 7,555 logged blend decisions, those
