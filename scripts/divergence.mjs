@@ -12,7 +12,14 @@
 //     --a '{"planning":false}' --b '{"planning":true}'
 //
 // A config takes planning (default true), guards: false, skipGuards and extraGuards, as in the bench. Search settings
-// (worlds, msPerWorld, weights, ...) come from B and are used by both sides, since only the policy is compared. Every
+// (worlds, msPerWorld, weights, ...) come from B and are used by both sides, since only the policy is compared, unless A
+// names search settings of its own: then A searches for itself on B's position, a paired test of the search budget or
+// engine rather than the policy. Two searches differ by chance even at the same settings, so the A/A for that kind of
+// run is two equal settings, which must come out even, not without divergences:
+//
+//   node scripts/divergence.mjs --games 20 --name budget --a '{"msPerWorld":200}' --b '{"msPerWorld":500}'
+//
+// Every
 // divergence and every game go to logs/divergence/<name>.jsonl; rerunning with the same name resumes. A run with A the
 // same as B must find no divergences at all: any it finds mean the policy is not reproducible, and nothing else holds.
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -56,6 +63,8 @@ const bin = process.env.POKE_ENGINE_BIN?.trim() || 'vendor/poke-engine/target/re
 const defaults = { bin, worlds: 16, msPerWorld: 100, extraWorlds: 0, closeRatio: 0.6, endgamePokemon: 0, endgameWorlds: 8,
   endgameMsPerWorld: 400, planning: true, guards: true, skipGuards: [], extraGuards: [] };
 const A = { ...defaults, ...JSON.parse(args.a) }, B = { ...defaults, ...JSON.parse(args.b) };
+const searchKeys = ['bin', 'worlds', 'msPerWorld', 'extraWorlds', 'closeRatio', 'endgamePokemon', 'endgameWorlds', 'endgameMsPerWorld', 'weights'];
+const ownSearch = searchKeys.some(k => k in JSON.parse(args.a));
 const policy = c => ({ planning: c.planning !== false,
   guards: c.guards === false ? false : c.skipGuards?.length || c.extraGuards?.length ? { skip: c.skipGuards ?? [], extra: c.extraGuards ?? [] } : true });
 const lanes = Math.max(1, Number(args.lanes ?? Math.floor((availableParallelism() - 1) / 2)));
@@ -76,10 +85,11 @@ const searchOnly = { async chooseAction() { throw new Error('search only'); } };
 /** Policy A's choice on the position B just decided, given B's own search result. */
 function shadowChoice(room, username, state, request, search) {
   return new Promise(resolveChoice => {
-    const timer = setTimeout(() => resolveChoice(null), 20_000);
+    const timer = setTimeout(() => resolveChoice(null), ownSearch ? searchTimeoutMs(A, lanes) + 20_000 : 20_000);
+    const own = { ...blend((s, actions) => searchWorlds(s, actions, searchOptions(A, lanes))), timeoutMs: searchTimeoutMs(A, lanes) };
     const loop = new DecisionLoop({ room, username, dryRun: true, send: () => false, state: () => state, onStatus() {},
       onDecision: record => { clearTimeout(timer); resolveChoice(record); }, timeoutMs: 50, provider: searchOnly,
-      search: blend(async () => search), ...policy(A) });
+      search: ownSearch ? own : blend(async () => search), ...policy(A) });
     loop.request(request);
   });
 }
@@ -205,7 +215,7 @@ async function play(seed) {
               const delta = scores[a.id] && scores[b.id] ? Math.round((scores[b.id].score - scores[a.id].score) * 1000) / 1000 : null;
               if (delta !== null) stats.judged++;
               appendFileSync(out, JSON.stringify({ divergence: true, seed, side, turn: state.turn, delta,
-                a: { id: a.id, label: a.label, judge: scores[a.id], search: search.values[a.id] ?? null },
+                a: { id: a.id, label: a.label, judge: scores[a.id], search: (shadow.search?.values ?? search.values)[a.id] ?? null },
                 b: { id: b.id, label: b.label, judge: scores[b.id], search: search.values[b.id] ?? null },
                 judgeBest: Object.entries(scores).filter(([, v]) => v).sort((x, y) => y[1].score - x[1].score)[0]?.[0] ?? null,
                 changedByB: record.tacticalRanking?.from !== record.tacticalRanking?.to ? record.tacticalRanking : undefined,
@@ -283,7 +293,8 @@ function auditReport() {
 }
 
 console.log(`divergence ${args.name}: ${games} games from seed ${firstSeed}, ${lanes} search lanes per player, judge ${judgeRuns} x ${judgeMs} ms`);
-console.log('A', JSON.stringify(policy(A)), 'B', JSON.stringify(policy(B)), 'search', JSON.stringify({ worlds: B.worlds, msPerWorld: B.msPerWorld }));
+console.log('A', JSON.stringify(policy(A)), 'B', JSON.stringify(policy(B)), 'search', JSON.stringify({ worlds: B.worlds, msPerWorld: B.msPerWorld }),
+  ownSearch ? `A searches for itself: ${JSON.stringify({ worlds: A.worlds, msPerWorld: A.msPerWorld })}` : '');
 for (let seed = firstSeed; seed < firstSeed + games; seed++) {
   if (done.has(seed)) continue;
   const result = await play(seed);
