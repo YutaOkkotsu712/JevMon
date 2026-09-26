@@ -23055,3 +23055,18 @@ fn test_lash_out_doubles_against_an_intimidate_switch_in() {
     let (plain, intimidated) = (hit(Abilities::NONE), hit(Abilities::INTIMIDATE));
     assert!(intimidated > plain * 5 / 4, "-1 Attack and double power: {} against {}", intimidated, plain);
 }
+
+#[test]
+fn test_defense_boosts_count_as_attack_for_a_body_press_user() {
+    use poke_engine::engine::evaluate::evaluate;
+    let score = |press: bool| {
+        let mut state = State::default();
+        let mon = state.side_one.get_active();
+        mon.replace_move(PokemonMoveIndex::M0, if press { Choices::BODYPRESS } else { Choices::SPLASH });
+        mon.replace_move(PokemonMoveIndex::M1, Choices::IRONDEFENSE);
+        let with = { state.side_one.defense_boost = 2; evaluate(&state) };
+        let without = { state.side_one.defense_boost = 0; evaluate(&state) };
+        with - without
+    };
+    assert!(score(true) > score(false), "+2 Defense is worth more to a Body Press user: {} against {}", score(true), score(false));
+}

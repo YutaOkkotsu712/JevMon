@@ -3,7 +3,7 @@ use super::items::Items;
 use super::state::PokemonVolatileStatus;
 use super::damage_calc::type_effectiveness_modifier;
 use super::generate_instructions::{get_effective_speed, MAX_SLEEP_TURNS};
-use crate::choices::MoveCategory;
+use crate::choices::{Choices, MoveCategory};
 use crate::state::{Pokemon, PokemonStatus, Side, SideReference, State};
 use std::sync::OnceLock;
 
@@ -302,6 +302,10 @@ fn attacks_with(pokemon: &Pokemon, category: MoveCategory) -> bool {
     pokemon.moves.into_iter().any(|mv| mv.choice.category == category)
 }
 
+fn presses_with_defense(pokemon: &Pokemon) -> bool {
+    pokemon.moves.into_iter().any(|mv| mv.id == Choices::BODYPRESS)
+}
+
 /// HP, status and item: the part of one Pokémon's value that the evaluation floors at zero, so that a low-HP Pokémon
 /// never scores below nothing and gives the other side a reason to keep it alive.
 fn pokemon_features(pokemon: &Pokemon) -> Features {
@@ -354,6 +358,11 @@ fn side_features(side: &Side, w: Option<&Weights>) -> (Features, f32) {
                     total.attack_boost += get_boost_multiplier(side.attack_boost);
                 }
                 total.defense_boost += get_boost_multiplier(side.defense_boost);
+                // Body Press hits with the user's Defense, so each Defense stage is an Attack stage too. Scored only as
+                // defence, a +4 Iron Defense Probopass looked harmless while its Body Press went through three of ours.
+                if presses_with_defense(pkmn) {
+                    total.attack_boost += get_boost_multiplier(side.defense_boost);
+                }
                 if attacks_with(pkmn, MoveCategory::Special) {
                     total.special_attack_boost += get_boost_multiplier(side.special_attack_boost);
                 }

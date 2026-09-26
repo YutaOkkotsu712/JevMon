@@ -2556,3 +2556,16 @@ overruling the search, or a guard's fallback. Four fixes:
 - Across the logs, 6 of 307 fallbacks spent Tera that way (3–3), including Sawsbuck's Double-Edge + Tera Normal and
   this Clodsire.
 - A DecisionLoop test covers it. 448 pass.
+
+## Engine scoring: a Body Press user's Defense boosts count as Attack boosts (2026-09-26)
+
+- The damage calculation already hit with the user's boosted Defense for Body Press. The position score did not: every
+  Pokémon's Defense stage scored only as defence (15 a stage), and Attack stages only for Pokémon with a physical move.
+  A +4 Iron Defense Probopass looked safe but harmless, while its Body Press went through three of ours (2687216027).
+  Registeel and cobblemon_eclipse's other Iron Defense sets went the same way, and our own Chesnaught and Corviknight
+  sets were undervalued the same way.
+- `evaluate.rs` now also adds each Defense stage as an Attack stage for a Pokémon that has Body Press. Its defensive
+  value is unchanged.
+- New engine test; 233 unit and 691 battle-mechanics tests pass. The binary is built in `target-next` and is not
+  promoted: the `fitted` self-play run is using the main binary. It goes live when that run ends, together with
+  whichever weights the run decides on.
