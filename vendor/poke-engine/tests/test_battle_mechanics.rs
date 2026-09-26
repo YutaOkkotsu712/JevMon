@@ -17249,6 +17249,32 @@ fn test_terashell_makes_every_hit_at_full_hp_not_very_effective() {
 }
 
 #[test]
+fn test_leftovers_acts_before_toxic_so_a_full_hp_holder_still_takes_it() {
+    // Self-play: a full-HP Lunala with Leftovers, badly poisoned, lost a sixteenth where the engine had it losing nothing.
+    let mut state = State::default();
+    state.side_two.get_active().item = Items::LEFTOVERS;
+    state.side_two.get_active().status = PokemonStatus::TOXIC;
+    let branches = set_moves_on_pkmn_and_call_generate_instructions(
+        &mut state,
+        Choices::SPLASH,
+        Choices::SPLASH,
+    );
+    let net: i16 = branches[0]
+        .instruction_list
+        .iter()
+        .map(|i| match i {
+            Instruction::Damage(d) if d.side_ref == SideReference::SideTwo => -d.damage_amount,
+            Instruction::Heal(h) if h.side_ref == SideReference::SideTwo => h.heal_amount,
+            _ => 0,
+        })
+        .sum();
+    assert_eq!(
+        net, -6,
+        "Leftovers restores nothing at full HP, then toxic takes its sixteenth"
+    );
+}
+
+#[test]
 fn test_sword_of_ruin() {
     let mut state = State::default();
     state.side_one.get_active().ability = Abilities::SWORDOFRUIN;

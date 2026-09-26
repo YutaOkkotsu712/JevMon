@@ -29,7 +29,7 @@ use super::damage_calc::calculate_futuresight_damage;
 use super::damage_calc::{calculate_damage, type_effectiveness_modifier, DamageRolls};
 use super::items::{
     cheek_pouch, item_before_move, item_end_of_turn, item_modify_attack_against,
-    item_modify_attack_being_used, item_on_switch_in, unnerves, Items,
+    item_modify_attack_being_used, item_on_switch_in, item_residual_heal, unnerves, Items,
 };
 use super::state::{MoveChoice, PokemonVolatileStatus, Terrain, Weather};
 use crate::choices::{Choice, MoveCategory};
@@ -3193,6 +3193,13 @@ fn add_end_of_turn_instructions(
             incoming_instructions
                 .instruction_list
                 .push(decrement_wish_instruction);
+        }
+    }
+
+    // Leftovers and Black Sludge, before poison and burn
+    for side_ref in sides {
+        if state.get_side(side_ref).get_active().hp > 0 {
+            item_residual_heal(state, side_ref, &mut incoming_instructions);
         }
     }
 
@@ -10406,7 +10413,8 @@ mod tests {
             percentage: 100.0,
             instruction_list: vec![Instruction::Damage(DamageInstruction {
                 side_ref: SideReference::SideOne,
-                damage_amount: 6,
+                // Showdown: "loses 1/8 if not" a Poison type.
+                damage_amount: 12,
             })],
         };
 

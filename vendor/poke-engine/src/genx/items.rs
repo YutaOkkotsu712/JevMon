@@ -983,6 +983,45 @@ pub fn item_on_switch_in(
     }
 }
 
+/// Leftovers and Black Sludge, which act before poison and burn at the end of a turn (Showdown's residual order 5,
+/// against 9 and 10): at full HP Leftovers restores nothing and the poison still lands. Black Sludge takes an eighth
+/// from a holder that is not Poison-type.
+pub fn item_residual_heal(
+    state: &mut State,
+    side_ref: &SideReference,
+    instructions: &mut StateInstructions,
+) {
+    let active_pkmn = state.get_side(side_ref).get_active();
+    let poison = active_pkmn.has_type(&PokemonType::POISON);
+    let amount = match active_pkmn.item {
+        Items::LEFTOVERS => active_pkmn.maxhp / 16,
+        Items::BLACKSLUDGE if poison => active_pkmn.maxhp / 16,
+        Items::BLACKSLUDGE if active_pkmn.ability != Abilities::MAGICGUARD => {
+            -(active_pkmn.maxhp / 8)
+        }
+        _ => 0,
+    };
+    if amount > 0 && active_pkmn.hp < active_pkmn.maxhp {
+        let heal_amount = cmp::min(amount, active_pkmn.maxhp - active_pkmn.hp);
+        active_pkmn.hp += heal_amount;
+        instructions
+            .instruction_list
+            .push(Instruction::Heal(HealInstruction {
+                side_ref: *side_ref,
+                heal_amount,
+            }));
+    } else if amount < 0 {
+        let damage_amount = cmp::min(-amount, active_pkmn.hp);
+        active_pkmn.hp -= damage_amount;
+        instructions
+            .instruction_list
+            .push(Instruction::Damage(DamageInstruction {
+                side_ref: *side_ref,
+                damage_amount,
+            }));
+    }
+}
+
 pub fn item_end_of_turn(
     state: &mut State,
     side_ref: &SideReference,
@@ -1019,29 +1058,6 @@ pub fn item_end_of_turn(
         Items::RAWSTBERRY if active_pkmn.status == PokemonStatus::BURN => {
             status_cure_berry(Items::RAWSTBERRY, side_ref, attacking_side, instructions)
         }
-        Items::BLACKSLUDGE => {
-            if active_pkmn.has_type(&PokemonType::POISON) {
-                if active_pkmn.hp < active_pkmn.maxhp {
-                    let heal_amount =
-                        cmp::min(active_pkmn.maxhp / 16, active_pkmn.maxhp - active_pkmn.hp);
-                    let ins = Instruction::Heal(HealInstruction {
-                        side_ref: side_ref.clone(),
-                        heal_amount: heal_amount,
-                    });
-                    active_pkmn.hp += heal_amount;
-                    instructions.instruction_list.push(ins);
-                }
-            } else {
-                let damage_amount =
-                    cmp::min(active_pkmn.maxhp / 16, active_pkmn.maxhp - active_pkmn.hp);
-                let ins = Instruction::Damage(DamageInstruction {
-                    side_ref: side_ref.clone(),
-                    damage_amount: damage_amount,
-                });
-                active_pkmn.hp -= damage_amount;
-                instructions.instruction_list.push(ins);
-            }
-        }
         Items::FLAMEORB => {
             if !immune_to_status(state, &MoveTarget::User, side_ref, &PokemonStatus::BURN) {
                 let side = state.get_side(side_ref);
@@ -1052,18 +1068,6 @@ pub fn item_end_of_turn(
                     old_status: PokemonStatus::NONE,
                 });
                 side.get_active().status = PokemonStatus::BURN;
-                instructions.instruction_list.push(ins);
-            }
-        }
-        Items::LEFTOVERS => {
-            let attacker = state.get_side(side_ref).get_active();
-            if attacker.hp < attacker.maxhp {
-                let heal_amount = cmp::min(attacker.maxhp / 16, attacker.maxhp - attacker.hp);
-                let ins = Instruction::Heal(HealInstruction {
-                    side_ref: side_ref.clone(),
-                    heal_amount: heal_amount,
-                });
-                attacker.hp += heal_amount;
                 instructions.instruction_list.push(ins);
             }
         }
