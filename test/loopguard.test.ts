@@ -29,6 +29,20 @@ test('returning to a Pokemon we just left, with one that just arrived, is recogn
   assert.equal(cyclicSwitch(b.state, 'p1', arrived!), null, 'switching to the Pokemon already in is not a cycle');
 });
 
+test('a Zero forme Palafin leaving is its transformation, not a cycle', () => {
+  // 2688264365: a Palafin that had just come in was penalised for switching out, and used Wave Crash at base 70 Attack.
+  const palafin = () => ours('Palafin', 77, ['Jet Punch', 'Wave Crash', 'Flip Turn', 'Close Combat'], 'Zero to Hero', 'Choice Band', 'Water');
+  const run = (second: ReturnType<typeof ours>, species: string) => {
+    const b = battle([bronzong(), second], 'Amoonguss');
+    b.feed('|turn|2');
+    b.feed(`|switch|p1a: ${species}|${second.details}|${second.maxHP}/${second.maxHP}`);
+    b.feed('|turn|3');
+    return cyclicSwitch(b.state, 'p1', b.state.sides.p1.team[0]!);
+  };
+  assert.ok(run(dragapult(), 'Dragapult'), 'the same shape with Dragapult is a cycle');
+  assert.equal(run(palafin(), 'Palafin'), null, 'Palafin leaves as the Hero');
+});
+
 test('the guard stays out of the way of ordinary play', () => {
   const settled = pingPong();
   settled.feed('|turn|6');

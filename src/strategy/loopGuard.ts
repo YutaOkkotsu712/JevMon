@@ -1,6 +1,7 @@
 import type { BattleState, PokemonState, SideId } from '../battle/BattleState.js';
 import { switchRelief } from './switchRelief.js';
 import { incomingThreats } from './threat.js';
+import { id } from '../pokemon/data.js';
 
 /** A two-Pokémon route already tried twice against the same two opposing Pokémon. The opponent
  * answered our switch both times and we switched back; repeating it with a nearly spent target
@@ -49,6 +50,9 @@ export function cyclicSwitch(s: BattleState, side: SideId, target: PokemonState)
   }
   // Clearing a new affliction, a stat drop or healing on exit is a concrete gain, not an empty cycle.
   if (switchRelief(s, me, side)?.hasRelief) return null;
+  // So is Zero to Hero: Palafin leaves as its Hero forme. Called a cycle, the switch out of a Palafin that had just come in
+  // was penalised, and it used Wave Crash with base 70 Attack instead (2688264365).
+  if (!me.abilitySuppressed && !me.transformedInto && id(me.ability ?? '') === 'zerotohero' && id(me.species) === 'palafin') return null;
   // A deliberate sacrifice ends the cycle and can buy a replacement after the opposing attack.
   if (incomingThreats(s, target, side, 1)?.conditionalKO === 'all-sampled-rolls') return null;
   const arrived = me.activeSinceTurn;

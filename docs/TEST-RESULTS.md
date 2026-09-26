@@ -2788,3 +2788,17 @@ did nothing.
   Shadow Ball into both Protects, where Freeze-Dry would have survived 78% of the time and won. Within the solver's
   depth, Protect postpones the knockout past the horizon, so it scores higher than an attack that loses at once. Left
   as it is for now: the loss was already certain against the best reply.
+
+## Palafin (2026-09-26)
+
+- In six logged games with a Palafin, ours pivoted out of the Zero forme at once in most: a switch or Flip Turn when
+  it first faced something, then back as the Hero. At a fresh lead the search switches or Flip Turns 68–88% of the
+  time as Zero, and attacks as Hero.
+- **The cycle rule treated its exit as a wasted turn.** In 2688264365 a Palafin that had just come in was penalised
+  for switching straight out, though leaving is what makes it the Hero. `cyclicSwitch` now leaves a Zero forme
+  Palafin alone.
+- **Tried and dropped: a `zero_forme` evaluation term** (−40 for a living Palafin still in the Zero forme). The
+  engine scores leaves against the root, and in the attacking lines Palafin also switches out within the tree, so every
+  option rose alike (about 0.09) and the choice on 2688264365 turn 15 did not move. It would also make a Zero Palafin
+  fainting 40 cheaper. The search's pick there, a super-effective Choice Band Wave Crash for 42% before pivoting, is a
+  defensible one.
