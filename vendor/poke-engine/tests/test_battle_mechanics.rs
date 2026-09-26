@@ -1026,6 +1026,29 @@ fn test_bellydrum_with_sitrus_berry_and_gluttony_at_even_amount_of_max_hp() {
 }
 
 #[test]
+fn test_cheek_pouch_heals_a_third_when_a_berry_is_eaten() {
+    let mut state = State::default();
+    state.side_one.get_active().hp = 20;
+    state.side_one.get_active().maxhp = 100;
+    state.side_one.get_active().ability = Abilities::CHEEKPOUCH;
+    state.side_one.get_active().item = Items::SITRUSBERRY;
+    let vec_of_instructions = set_moves_on_pkmn_and_call_generate_instructions(
+        &mut state,
+        Choices::SPLASH,
+        Choices::SPLASH,
+    );
+    let heals: Vec<i16> = vec_of_instructions[0]
+        .instruction_list
+        .iter()
+        .filter_map(|x| match x {
+            Instruction::Heal(h) if h.side_ref == SideReference::SideOne => Some(h.heal_amount),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(heals, vec![25, 33], "Sitrus's quarter, then Cheek Pouch's third");
+}
+
+#[test]
 fn test_unnerve_keeps_the_opponent_from_eating_its_sitrus_berry() {
     let mut state = State::default();
     state.side_one.get_active().hp = 100;

@@ -345,6 +345,24 @@ pub fn is_berry(item: Items) -> bool {
     )
 }
 
+/// Cheek Pouch: eating a berry also heals a third of max HP.
+pub fn cheek_pouch(
+    pkmn: &mut Pokemon,
+    side_ref: &SideReference,
+    instructions: &mut StateInstructions,
+) {
+    if pkmn.ability == Abilities::CHEEKPOUCH && pkmn.hp > 0 && pkmn.hp < pkmn.maxhp {
+        let heal_amount = cmp::min(pkmn.maxhp / 3, pkmn.maxhp - pkmn.hp);
+        instructions
+            .instruction_list
+            .push(Instruction::Heal(HealInstruction {
+                side_ref: *side_ref,
+                heal_amount,
+            }));
+        pkmn.hp += heal_amount;
+    }
+}
+
 /// The item as it acts now: a berry its holder cannot eat, against Unnerve, acts as none.
 fn usable_item(holder: &Pokemon, opponent: &Pokemon) -> Items {
     if is_berry(holder.item) && unnerves(opponent) {
@@ -374,6 +392,11 @@ fn damage_reduction_berry(
             }));
         defending_pkmn.item = Items::NONE;
         choice.base_power /= 2.0;
+        cheek_pouch(
+            defending_pkmn,
+            &attacking_side_ref.get_other_side(),
+            instructions,
+        );
     }
 }
 
@@ -439,6 +462,7 @@ fn lum_berry(
             new_item: Items::NONE,
         }));
     active_pkmn.item = Items::NONE;
+    cheek_pouch(active_pkmn, side_ref, instructions);
 }
 
 fn sitrus_berry(
@@ -463,6 +487,7 @@ fn sitrus_berry(
             new_item: Items::NONE,
         }));
     active_pkmn.item = Items::NONE;
+    cheek_pouch(active_pkmn, side_ref, instructions);
 }
 
 // A single-status-cure berry (Cheri/Chesto/Aspear/Pecha/Rawst): consume the berry and
@@ -485,6 +510,7 @@ fn status_cure_berry(
         }));
     active_pkmn.item = Items::NONE;
     add_remove_status_instructions(instructions, active_index, *side_ref, attacking_side);
+    cheek_pouch(attacking_side.get_active(), side_ref, instructions);
 }
 
 fn boost_berry(
@@ -510,6 +536,7 @@ fn boost_berry(
             new_item: Items::NONE,
         }));
     attacker.item = Items::NONE;
+    cheek_pouch(attacker, side_ref, instructions);
 }
 
 pub fn item_before_move(

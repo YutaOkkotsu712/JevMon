@@ -28,8 +28,8 @@ use crate::instruction::{DecrementPPInstruction, DisableMoveInstruction, SetLast
 use super::damage_calc::calculate_futuresight_damage;
 use super::damage_calc::{calculate_damage, type_effectiveness_modifier, DamageRolls};
 use super::items::{
-    item_before_move, item_end_of_turn, item_modify_attack_against, item_modify_attack_being_used,
-    item_on_switch_in, unnerves, Items,
+    cheek_pouch, item_before_move, item_end_of_turn, item_modify_attack_against,
+    item_modify_attack_being_used, item_on_switch_in, unnerves, Items,
 };
 use super::state::{MoveChoice, PokemonVolatileStatus, Terrain, Weather};
 use crate::choices::{Choice, MoveCategory};
@@ -941,7 +941,15 @@ fn get_instructions_from_status_effects(
         && state.get_side(&target_side_ref).get_active_immutable().ability == Abilities::SYNCHRONIZE
         && [PokemonStatus::BURN, PokemonStatus::PARALYZE, PokemonStatus::POISON, PokemonStatus::TOXIC]
             .contains(&status.status);
+    let berry_eaten = matches!(instruction, Instruction::ChangeItem(_));
     incoming_instructions.instruction_list.push(instruction);
+    if berry_eaten {
+        cheek_pouch(
+            state.get_side(&target_side_ref).get_active(),
+            &target_side_ref,
+            incoming_instructions,
+        );
+    }
     // Synchronize passes a burn, paralysis or poison from the opponent back to it. The one who sent it may be immune
     // or already statused, which the same checks settle; a Synchronize of its own cannot bounce it back again, since
     // the holder is statused by then.

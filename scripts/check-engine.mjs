@@ -59,15 +59,34 @@ const outcomes = (state, one, two) => new Promise(resolveRun => execFile(bin, ['
     const branches = [];
     for (const block of stdout.split(/^Index: \d+$/m).slice(1)) {
       const p = Number(/Percentage: ([\d.]+)/.exec(block)?.[1] ?? 0);
-      const net = { SideOne: 0, SideTwo: 0 };
-      for (const m of block.matchAll(/^\s*(Damage|Heal) (SideOne|SideTwo): (-?\d+)/gm)) net[m[2]] += (m[1] === 'Damage' ? -1 : 1) * Number(m[3]);
+      const net = { SideOne: 0, SideTwo: 0 }, hurt = { SideOne: 0, SideTwo: 0 };
+      for (const m of block.matchAll(/^\s*(Damage|Heal) (SideOne|SideTwo): (-?\d+)/gm)) {
+        net[m[2]] += (m[1] === 'Damage' ? -1 : 1) * Number(m[3]);
+        if (m[1] === 'Damage') hurt[m[2]] += Number(m[3]);
+      }
       const switched = /Switch (SideOne|SideTwo)/.test(block);
-      branches.push({ p, one: net.SideOne, two: net.SideTwo, switched });
+      branches.push({ p, one: net.SideOne, two: net.SideTwo, hurtOne: hurt.SideOne, hurtTwo: hurt.SideTwo, switched });
     }
     resolveRun(branches);
   }));
 
-const results = { turns: 0, checked: 0, explained: 0, unexplained: 0, engineErrors: 0 };
+const results = { turns: 0, checked: 0, explained: 0, unexplained: 0, engineErrors: 0, trackerDesyncs: 0 };
+const statusOf = { '': null, slp: 'slp', brn: 'brn', par: 'par', psn: 'psn', tox: 'tox', frz: 'frz' };
+/** Where the tracker's picture of both actives, as the bot searched it, differs from the simulator's. */
+function desync(state, battle) {
+  const out = [];
+  for (const side of ['p1', 'p2']) {
+    const t = state.sides[side].team.find(p => p.id === state.sides[side].activeId), a = battle[side].active[0];
+    if (!t || !a) continue;
+    const boosts = Object.fromEntries(Object.entries(a.boosts).filter(([, v]) => v));
+    const tracked = Object.fromEntries(Object.entries(t.boosts ?? {}).filter(([, v]) => v));
+    if (JSON.stringify(Object.entries(boosts).sort()) !== JSON.stringify(Object.entries(tracked).sort())) out.push({ side, what: 'boosts', tracked, real: boosts, species: a.species.name });
+    if ((t.status ?? null) !== (statusOf[a.status] ?? a.status ?? null)) out.push({ side, what: 'status', tracked: t.status, real: a.status, species: a.species.name });
+    const hp = Math.round(100 * a.hp / a.maxhp);
+    if (t.hpPercent !== null && Math.abs(t.hpPercent - hp) > 1) out.push({ side, what: 'hp', tracked: t.hpPercent, real: hp, species: a.species.name });
+  }
+  return out;
+}
 async function play(seed) {
   const stream = new BattleStreams.BattleStream();
   const streams = BattleStreams.getPlayerStreams(stream);
@@ -94,9 +113,10 @@ async function play(seed) {
       for (const side of ['p1', 'p2']) if (!after[side] || after[side].species !== before[side].species || after[side].fainted) return;
       results.checked++;
       const actual = { one: after.p1.hp - before.p1.hp, two: after.p2.hp - before.p2.hp };
-      // A damage roll spans 85-100%, the engine takes one: allow 16% of the predicted change, and 3% of max HP for rounding.
-      const fits = (pred, real, max) => Math.abs(pred - real) <= Math.max(0.16 * Math.abs(pred), 0.03 * max, 2);
-      const ok = branches.filter(b => !b.switched).some(b => fits(b.one, actual.one, before.p1.maxhp) && fits(b.two, actual.two, before.p2.maxhp));
+      // A damage roll spans 85-100% and the engine takes the average: allow 9% of the damage in the branch either way (a
+      // heal beside it cancels none of that spread), and 3% of max HP for the opponent's rounded HP.
+      const fits = (pred, hurt, real, max) => Math.abs(pred - real) <= Math.max(0.09 * hurt, 0.03 * max, 2);
+      const ok = branches.filter(b => !b.switched).some(b => fits(b.one, b.hurtOne, actual.one, before.p1.maxhp) && fits(b.two, b.hurtTwo, actual.two, before.p2.maxhp));
       if (ok) { results.explained++; return; }
       results.unexplained++;
       appendFileSync(args.out, JSON.stringify({ seed, ...info, actual, before, after,
@@ -120,8 +140,13 @@ async function play(seed) {
           const usable = x => x.action.kind === 'move' && !dex.moves.get(x.action.label.split(' + Tera')[0]).selfSwitch;
           if (!usable(a) || !usable(b) || a.state.sides.p2.identityUncertain || a.state.sides.p1.identityUncertain) { delete chosen.p1; delete chosen.p2; return; }
           const before = actives();
+          // The side deciding sees its own and the opposing active: check what it believes against the simulator.
+          const drift = desync(a.state, stream.battle);
+          if (drift.length) { results.trackerDesyncs++; appendFileSync(args.out.replace(/\.jsonl$/, '.desync.jsonl'), JSON.stringify({ seed, turn: a.turn, drift }) + '\n'); }
           const one = engineName(a.action, a.state), two = engineName(b.action, b.state);
-          const info = { turn: a.turn, p1: { move: a.action.label, species: before.p1.species, ability: before.p1.ability, item: before.p1.item },
+          const mine = a.state.sides.p1.team.find(p => p.id === a.state.sides.p1.activeId);
+          const info = { turn: a.turn, trackedBoosts: mine?.boosts, realBoosts: stream.battle.p1.active[0]?.boosts,
+            p1: { move: a.action.label, species: before.p1.species, ability: before.p1.ability, item: before.p1.item },
             p2: { move: b.action.label, species: before.p2.species, ability: before.p2.ability, item: before.p2.item } };
           let engineState;
           try { engineState = toEngineState(a.state, 'p1', truthWorld(a.state, 'p1', stream.battle)).state; } catch { delete chosen.p1; delete chosen.p2; return; }
