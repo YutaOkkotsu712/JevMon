@@ -488,10 +488,11 @@ impl Pokemon {
         taunted: bool,
         can_tera: bool,
         side_can_mega: bool,
+        disabled_move: Option<Choices>,
     ) {
         let mut iter = self.moves.into_iter();
         while let Some(p) = iter.next() {
-            if !p.disabled && p.pp > 0 {
+            if !p.disabled && p.pp > 0 && disabled_move != Some(p.id) {
                 match last_used_move {
                     LastUsedMove::Move(last_used_move) => {
                         if encored && last_used_move != &iter.pokemon_move_index {
@@ -1207,6 +1208,7 @@ impl State {
                 taunted,
                 self.side_one.can_use_tera(),
                 self.side_one.can_use_mega(),
+                self.side_one.disabled_move(),
             );
         }
 
@@ -1241,6 +1243,7 @@ impl State {
                 taunted,
                 self.side_two.can_use_tera(),
                 self.side_two.can_use_mega(),
+                self.side_two.disabled_move(),
             );
         }
 
@@ -1336,6 +1339,7 @@ impl State {
                 taunted,
                 self.side_one.can_use_tera(),
                 self.side_one.can_use_mega(),
+                self.side_one.disabled_move(),
             );
             if !self.side_one.trapped(side_two_active) {
                 self.side_one.add_switches(&mut side_one_options);
@@ -1372,6 +1376,7 @@ impl State {
                 taunted,
                 self.side_two.can_use_tera(),
                 self.side_two.can_use_mega(),
+                self.side_two.disabled_move(),
             );
             if !self.side_two.trapped(side_one_active) {
                 self.side_two.add_switches(&mut side_two_options);
@@ -1416,6 +1421,7 @@ impl State {
         let side = self.get_side(side_ref);
 
         // Take ownership of the current set to avoid borrow conflicts
+        side.set_disable(*side_ref, (0, 0), instructions);
         // since we may need to modify the side in the loop
         let mut volatile_statuses = std::mem::take(&mut side.volatile_statuses);
 

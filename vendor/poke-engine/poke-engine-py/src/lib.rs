@@ -17,7 +17,7 @@ use poke_engine::pokemon::PokemonName;
 use poke_engine::search::iterative_deepen_expectiminimax;
 use poke_engine::state::{
     LastUsedMove, Move, Pokemon, PokemonIndex, PokemonMoves, PokemonNature, PokemonStatus,
-    PokemonType, Side, SideConditions, SidePokemon, State, StateTerrain, StateTrickRoom,
+    PokemonType, Side, SideConditions, SidePokemon, SideReference, State, StateTerrain, StateTrickRoom,
     StateWeather, VolatileStatusBitset, VolatileStatusDurations,
 };
 use std::str::FromStr;
@@ -44,6 +44,7 @@ pub struct PyState {
     pub trick_room: bool,
     pub trick_room_turns_remaining: i8,
     pub team_preview: bool,
+    pub final_move_winner: Option<String>,
 }
 
 impl From<State> for PyState {
@@ -58,6 +59,7 @@ impl From<State> for PyState {
             trick_room: other.trick_room.active,
             trick_room_turns_remaining: other.trick_room.turns_remaining,
             team_preview: other.team_preview,
+            final_move_winner: other.final_move_winner.map(|side| if side == SideReference::SideOne { "s1" } else { "s2" }.to_string()),
         }
     }
 }
@@ -80,6 +82,11 @@ impl Into<State> for PyState {
                 turns_remaining: self.trick_room_turns_remaining,
             },
             team_preview: self.team_preview,
+            final_move_winner: self.final_move_winner.as_deref().map(|side| match side {
+                "s1" => SideReference::SideOne,
+                "s2" => SideReference::SideTwo,
+                _ => panic!("final_move_winner must be s1 or s2"),
+            }),
             use_last_used_move: false,
             use_damage_dealt: false,
         };
@@ -101,6 +108,7 @@ impl PyState {
         trick_room=false,
         trick_room_turns_remaining=0,
         team_preview=false,
+        final_move_winner=None,
     ))]
     fn new(
         side_one: PySide,
@@ -112,6 +120,7 @@ impl PyState {
         trick_room: bool,
         trick_room_turns_remaining: i8,
         team_preview: bool,
+        final_move_winner: Option<String>,
     ) -> Self {
         PyState {
             side_one,
@@ -123,6 +132,7 @@ impl PyState {
             trick_room,
             trick_room_turns_remaining,
             team_preview,
+            final_move_winner,
         }
     }
     fn apply_instructions(&self, instructions: PyStateInstructions) -> PyState {
@@ -278,7 +288,7 @@ impl PySide {
         active_index="0".to_string(),
         baton_passing=false,
         shed_tailing=false,
-        volatile_status_durations=PyVolatileStatusDurations::new(0, 0, 0, 0, 0, 0),
+        volatile_status_durations=PyVolatileStatusDurations::new(0, 0, 0, 0, 0, 0, (0, 0)),
         wish=(0, 0),
         future_sight=(0, "0".to_string()),
         force_switch=false,
@@ -372,6 +382,7 @@ pub struct PyVolatileStatusDurations {
     pub slowstart: i8,
     pub taunt: i8,
     pub yawn: i8,
+    pub disable: (i8, i8),
 }
 
 impl From<VolatileStatusDurations> for PyVolatileStatusDurations {
@@ -383,6 +394,7 @@ impl From<VolatileStatusDurations> for PyVolatileStatusDurations {
             slowstart: other.slowstart,
             taunt: other.taunt,
             yawn: other.yawn,
+            disable: other.disable,
         }
     }
 }
@@ -396,6 +408,7 @@ impl Into<VolatileStatusDurations> for PyVolatileStatusDurations {
             slowstart: self.slowstart,
             taunt: self.taunt,
             yawn: self.yawn,
+            disable: self.disable,
         }
     }
 }
@@ -410,6 +423,7 @@ impl PyVolatileStatusDurations {
         slowstart=0,
         taunt=0,
         yawn=0,
+        disable=(0, 0),
     ))]
     fn new(
         confusion: i8,
@@ -418,6 +432,7 @@ impl PyVolatileStatusDurations {
         slowstart: i8,
         taunt: i8,
         yawn: i8,
+        disable: (i8, i8),
     ) -> PyVolatileStatusDurations {
         PyVolatileStatusDurations {
             confusion,
@@ -426,6 +441,7 @@ impl PyVolatileStatusDurations {
             slowstart,
             taunt,
             yawn,
+            disable,
         }
     }
 }

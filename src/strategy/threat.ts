@@ -7,6 +7,7 @@ import type { Candidate } from './setTypes.js';
 import { dex } from '../pokemon/data.js';
 import { hitChancePercent } from '../pokemon/mechanics.js';
 import { choiceLock } from './stalling.js';
+import { disabledMove } from './disable.js';
 import { absorbedBy } from './abilities.js';
 import { behindSubstitute, intimidated, intimidateResponse, intimidates } from './intimidate.js';
 const active = (s: BattleState, side: SideId) => s.sides[side].team.find(p => p.id === s.sides[side].activeId);
@@ -93,6 +94,7 @@ export function incomingThreats(s: BattleState, target: PokemonState, targetSide
     ? plausible.filter(m => dex.moves.get(m.move).id === dex.moves.get(lock.lockedInto).id) : null;
   const moves = locked ? (locked.length ? locked : [{ move: lock!.lockedInto, revealed: true, priorProbability: 1 }]) : plausible;
   for (const m of moves) {
+    if (dex.moves.get(m.move).id === disabledMove(foe)) continue;
     const result = supportedMove(m.move) ? envelope(s, foe, target, foeSide, m.move, sets, [undefined], targetTera, attackerFor) : null;
     // Only claimed where the calculator actually produced nothing, so an attacker's Mold Breaker,
     // which reads straight through an absorbing ability, cannot turn this into a false promise.

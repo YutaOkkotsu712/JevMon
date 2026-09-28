@@ -84,7 +84,9 @@ export class BattleTracker {
     }
   }
   /** The last move used, by side, so an immunity can be traced to the attack that met it. */
-  private lastMove: { side: string; move: string } | null = null;
+  private lastMove: { side: string; move: string; external: boolean } | null = null;
+  /** Disable's duration depends on whether the target has spent its action, including turns lost to sleep. */
+  private actionOpportunity = new Map<string, number>();
   /** Treat a disguised Pokémon as the Zoroark form under it, until it leaves the field. */
   private unmask(p: PokemonState, form: IllusionForm, clue: string) {
     p.illusion = { species: p.species, details: p.details };
@@ -205,6 +207,7 @@ export class BattleTracker {
         // A switch or drag always means entering the field, even where a request had already named the
         // active slot. Joining mid-battle leaves this null, which reads as unknown rather than as just arrived.
         next.activeSinceTurn = this.state.turn;
+        this.actionOpportunity.set(next.id, this.state.turn);
         side.activeId = next.id;
         this.condition(next, third);
         const tera = /, tera:([^,]+)/.exec(second)?.[1];
@@ -259,6 +262,7 @@ export class BattleTracker {
       case '-curestatus': if (pokemon) { pokemon.status = null; pokemon.toxicTurns = 0; pokemon.sleepTurns = 0; pokemon.lastSleepTurnCounted = null; pokemon.sleepFromRest = false; } break;
       // A turn lost to sleep is the only public evidence of how far through the counter a Pokémon is.
       case 'cant':
+        if (pokemon) this.actionOpportunity.set(pokemon.id, this.state.turn);
         if (pokemon) endSingleMove(pokemon);
         if (pokemon && moveId(second) === 'slp') this.countSleepTurn(pokemon);
         // A rampage stopped by sleep, paralysis or a flinch ends without the confusion.
@@ -285,7 +289,8 @@ export class BattleTracker {
           if (!called || effectId(source) === 'lockedmove') endSingleMove(pokemon);
           const ownMoveSet = !called || ownSetCallers.has(effectId(source.replace(/^(move|ability): /, '')));
           if (ownMoveSet && !moves.includes(second)) { moves.push(second); if (id) this.shareTeamMoves(id); }
-          this.lastMove = { side: id ?? '', move: second };
+          this.lastMove = { side: id ?? '', move: second, external: ['dancer', 'instruct'].includes(effectId(source.replace(/^(move|ability): /, ''))) };
+          if (!called || effectId(source) === 'lockedmove') this.actionOpportunity.set(pokemon.id, this.state.turn);
           // Illusion: a move the disguise could never carry names the Zoroark underneath.
           if (id !== this.state.mySide && !called && !pokemon.transformedInto && !pokemon.illusion) {
             const form = formFromMove(pokemon.species, second, pokemon.revealedMoves);
@@ -447,6 +452,12 @@ export class BattleTracker {
             if (/^perish[0-3]$/.test(key)) delete pokemon.volatiles[key];
           }
           pokemon.volatiles[effect] = { sinceTurn: this.state.turn, data: third || null };
+          // Four residual ticks before/during the target's own action, five after it. Dancer/Instruct are external
+          // moves: triggering Cursed Body through those does not consume another turn. Server -end is authoritative.
+          if (effectId(effect) === 'disable') {
+            const duringOwnMove = a.some(v => v.includes('ability: Cursed Body')) && !this.lastMove?.external;
+            pokemon.volatiles[effect]!.turns = duringOwnMove || this.actionOpportunity.get(pokemon.id) !== this.state.turn ? 4 : 5;
+          }
           if (effect === 'confusion' && a.includes('[fatigue]')) delete pokemon.rampage;
           // Future Sight is announced on its user and lands on the other side's slot, whoever is there by then; it
           // belongs to the side, so it outlasts the user switching out.

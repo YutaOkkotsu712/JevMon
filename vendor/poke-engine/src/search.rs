@@ -11,6 +11,14 @@ enum IterativeDeependingThreadMessage {
     Stop((Vec<MoveChoice>, Vec<MoveChoice>, Vec<f32>, i8)),
 }
 
+// A completed game is a terminal payoff, including at the depth cutoff. The finite sentinel keeps
+// chance-weighted matrices well defined; nonterminal evaluation weights and faster-win bonuses stay intact.
+const TERMINAL_SCORE: f32 = 1_000_000.0;
+fn terminal_score(state: &State, result: f32, remaining_depth: i8) -> f32 {
+    let terminal_bonus = if cfg!(feature = "gen9") { TERMINAL_SCORE } else { 0.0 };
+    result * (terminal_bonus + 100.0 * remaining_depth as f32) + evaluate(state)
+}
+
 pub fn expectiminimax_search(
     state: &mut State,
     mut depth: i8,
@@ -34,7 +42,7 @@ pub fn expectiminimax_search(
     let battle_is_over = state.battle_is_over();
     if battle_is_over != 0.0 {
         for _ in 0..(num_s1_moves * num_s2_moves) {
-            score_lookup.push(((100.0 * depth as f32) * battle_is_over) + evaluate(state));
+            score_lookup.push(terminal_score(state, battle_is_over, depth));
         }
         return score_lookup;
     }
@@ -52,12 +60,18 @@ pub fn expectiminimax_search(
             }
 
             let mut score = 0.0;
+            // Endgames need the same knockout-roll and critical-hit branches as MCTS. An average noncritical
+            // hit erases lines such as preserving Iron Leaves for Leaf Blade's high critical-hit chance.
             let instructions =
-                generate_instructions_from_move_pair(state, &side_one_move, &side_two_move, false);
+                generate_instructions_from_move_pair(state, &side_one_move, &side_two_move, true);
             if depth == 0 {
                 for instruction in instructions.iter() {
                     state.apply_instructions(&instruction.instruction_list);
-                    score += instruction.percentage * evaluate(state) / 100.0;
+                    let result = state.battle_is_over();
+                    let value = if cfg!(feature = "gen9") && result != 0.0 {
+                        terminal_score(state, result, 0)
+                    } else { evaluate(state) };
+                    score += instruction.percentage * value / 100.0;
                     state.reverse_instructions(&instruction.instruction_list);
                 }
             } else {

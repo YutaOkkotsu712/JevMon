@@ -2826,3 +2826,143 @@ did nothing.
   might have, knocks out at every roll is now left alone: they must attack sooner or later, and priority is its only
   way to act first. It still fires on all five repeats in 2688242787, where our Spiritomb was not in reach of a
   knockout.
+
+## Alcremie cosmetic switch results (2026-09-27)
+
+- **2688311523, Lunala versus Mienshao and Alcremie.** The engine received `ALCREMIE`, but the legal switch was
+  matched against `alcremierainbowswirl`. Its search result was discarded: every Alcremie switch had zero visit share
+  and no score. At turn 23's replacement, the missing share was about 52%, beside Jev's 63% for Alcremie.
+- **Fix limited to Alcremie.** Its switch lookup now uses the same existing cosmetic-form canonicalisation as the
+  engine state writer. Base Alcremie and all eight cosmetic flavours map to `alcremie`; mechanically distinct forms
+  remain distinct. Other species' mappings, the server's switch slot, search budgets, weights and guards are unchanged.
+- **Regression coverage.** All nine Gen 9 Alcremie forms are checked against the serialised engine species. Real-engine
+  checks cover ordinary search, a forced replacement and the endgame solver, including retained scores and total visit
+  share. Separate checks preserve the existing names of other species and mechanically distinct forms. Before the fix,
+  all eight alternate-form checks and both ordinary/endgame search checks reproduced the missing result.
+- **Verification.** `npm test`: 495 passed, zero failed or skipped. The suite needed permission to open its temporary
+  local UI test servers; the sandbox's initial run refused those listeners. `git diff --check` passed. Across all 237
+  legal-action entries in the logged game, only its 30 Alcremie switches changed names. An offline reconstruction of
+  turn 23's replacement returned Alcremie at 53.2% with a finite score, and both switches together retained 100% of the
+  votes. This is a new sampled search, not recovery of the original random worlds or proof of a different game result.
+- Built the updated TypeScript. The running bot was not stopped or restarted; it picks up the fix on its next restart.
+
+## Disable, initial Terapagos, phazing, and the latest 20 games (2026-09-27)
+
+Completed the three previously authorized fixes, then expanded the audit to the latest 20 completed battles at
+the user's request. Full evidence, the frozen cohort and rejected bug hypotheses are in
+[BATTLE-AUDIT-2026-09-27.md](BATTLE-AUDIT-2026-09-27.md).
+
+- **2688327979, Hitmontop / Froslass turns 29–31:** disabled Triple Axel was still a threat and a legal search
+  option, even after Hitmontop used Bulk Up. Disable now carries its named slot and expiring duration into the
+  engine, excludes that immediate threat and clears on switching. Its expiry preserves Choice restrictions.
+  Tests cover fast/slow Disable, Cursed Body, a spent sleeping action, external Dancer actions, unknown names,
+  old state strings, and exact application/reversal of search instructions. The latest cohort also contains
+  the same defect with Passimian's Knock Off in 2688524078 turns 7–8.
+- **2688333996, Terapagos before first entry:** the bench was priced as base Terapagos with Tera Shift.
+  Entry projections and search now include its guaranteed Terastal form, stats and Tera Shell before hazards.
+  Missing absolute HP is preserved. The logged special set has 273 max HP and Attack 151 after entry; Triple
+  Arrows at turn 17 changes from 88.3–104.2% to 17.5–20.9%. This correction does not spend Tera. Already changed,
+  fainted, transformed and unrelated Pokémon are untouched. Local Showdown verification matched entry at
+  199/273 after 40 prior damage and Stealth Rock, with stats 151/214/206/214/175.
+- **2688340271, Solgaleo / Dipplin turns 26–28:** `outhealed` incorrectly penalized Roar. Forced switching now
+  receives the exemption already intended by that guard; Roar and Whirlwind tests retain the ordinary stalled
+  attack penalty. Other phazing restrictions remain in their existing guards.
+- **Latest 20:** fixed missing Minior/Gastrodon cosmetic switch results and Minior's mismatched Meteor form ID.
+  All core colours and both Gastrodon appearances are covered. Corrected one inaccurate Tera explanation
+  without changing the guard's decisions. The initial Iron Leaves typing/damage check was correct but incomplete;
+  the user's critical-hit follow-up led to the additional solver fix below. No policy or weight change was made.
+- **Verification at this stage:** TypeScript build passed; 509 non-UI tests passed; all 965 engine tests passed; three local
+  simulator games completed with zero rejections/errors. The seven initial regressions for the earlier three
+  bugs all failed before their fixes. The 16 new Minior/Gastrodon checks had 14 failures and two passing base
+  controls before those fixes. Fixed-world serialization across 665 logged positions changed only the two
+  Minior positions and two Disable positions; the checked guard action sets stayed unchanged in that cohort.
+- **Initial verification limit, subsequently resolved below:** automatic approval review could not authorize the complete suite's temporary
+  UI listeners because it hit an account usage limit. Only the non-UI suite was rerun; the earlier 495-test
+  full-suite result above is historical, not a result for this patch. No bot stop/restart or commit/push.
+
+## Refreshed 20 games, Leaf Blade criticals, and pivot knockouts (2026-09-27)
+
+- The refreshed cohort is **2688532027–2688617050**, 623 decisions, 10 wins / 10 losses. Ten newly completed
+  games added 264 decisions; the overlapping ten were already inspected. No provider fallbacks, server errors
+  or selected/sent command mismatches in this cohort.
+- **Endgame RNG bug:** unlike MCTS, expectiminimax passed `branch_on_damage = false`, suppressing normal
+  knockout-roll branches and non-guaranteed critical hits. Leaf Blade's implemented 1/8 critical rate never
+  reached that solver. It now requests the existing chance branches at every depth. Two new regressions failed
+  before the correction; all three now pass, including the Shell Armor control and reversible state checks.
+- **Iron Leaves limitation:** fixed-depth replays still prefer the sacrifice at depths 1–2; deeper mixed strategies
+  favor keeping it in both versions. The missing RNG was a verified defect, but does not establish the sole cause
+  of the original move. The evaluator's preference for a surviving Guts Conkeldurr was not retuned. The audit
+  records depth-4/5 comparisons and does not claim a guaranteed alternative win or a benefit from more search time.
+- **2688610660 turn 20:** after Flip Turn KOs its target, our living active must select a replacement first.
+  The adapter instead let only the opponent choose, dropping all three of our switch scores. The forced-switch
+  flag now handles that case. The real-position replay retains all three finite scores and 100% total share;
+  the new regression failed before and passes after. Existing fast/slow pivot and fainted-active controls pass.
+- **Final verification:** `npm test` **524 passed**, none failed or skipped; the complete Rust suite **968 passed**.
+  The earlier UI permission failure was resolved by retrying through approval after its stated reset time, and
+  the full run includes UI tests. Eight same-budget reconstructed endgames returned finite results without
+  timeouts; three local simulator games previously completed with no rejected actions or errors. TypeScript
+  and release engine builds and `git diff --check` pass. No search weights, budgets or bot process were changed.
+
+## Original STAB after Terastallization (2026-09-27)
+
+- Confirmed that the battle-state adapter, damage calculator and search engine already retain original-type
+  STAB after ordinary Tera. No gameplay code change was needed. The calculator passes original types and Tera
+  separately; the engine also stores Tera separately and checks original types when applying attacking STAB.
+- Added four integration regressions in `test/tera-stab.test.ts`: projected and protocol-applied Tera Fighting
+  and Tera Grass, plus the same states passed through serialization into the real engine. Both original Grass
+  and Psychic attacks retain their bonus; a new Fighting type gains 1.5x STAB, matching Grass gets 2x total STAB,
+  and unrelated Bug coverage stays unchanged. Incoming Scald independently checks the changed defensive typing.
+  Engine checks cover normal and critical damage. Projections must leave the live battle state untouched.
+- In the controlled Iron Leaves versus Mew calculator fixture, Leaf Blade stays **122–146 HP** before and after
+  Tera Fighting; Psyblade stays **55–65 HP**. Close Combat rises **55–65 → 82–97 HP**, and Tera Grass raises
+  Leaf Blade to **164–195 HP**. These fixture values are not a reconstruction of the earlier ladder battle.
+- Verification: full `npm test` **528 passed**, none failed or skipped, including all four new tests and UI
+  tests. All **8** existing engine tests matching `test_tera_` passed, including retained original STAB, new
+  Tera STAB, matching-type 2x STAB and no-STAB controls. `git diff --check` passed. Bot process unchanged.
+
+## Final-knockout results and a new 20-game cohort (2026-09-28)
+
+Full evidence and all 20 battle IDs are recorded in [BATTLE-AUDIT-2026-09-28.md](BATTLE-AUDIT-2026-09-28.md).
+
+- Reviewed **523 decisions** in battles **2688761269–2688796928**, 10 wins / 10 losses. No missing searches,
+  provider fallback, server error or selected/sent command mismatch. Sawsbuck-Winter lost its search scores
+  in 2688771767; switch-name mapping now covers all four seasonal forms. Six new regressions failed before
+  the change, with one passing base-name control; all seven pass afterward. Actual-position replays restore
+  finite scores and total action share. No remaining current switch-name mismatch in the frozen cohort.
+- Independently verified the user's Life Orb rule in Showdown. Final double-KO winners now follow Gen 9
+  move faint order instead of always treating side one as the loser. Search state apply/reverse and old
+  serialization compatibility are covered, including critical-only wins versus noncritical losses.
+- Found and fixed a separate endgame cutoff bug: a guaranteed last KO scored 31 versus Swords Dance's 60.
+  Completed Gen 9 wins/losses now receive decisive finite terminal payoffs at every depth; all existing
+  nonterminal weights, faster-win bonuses, guards and budgets stay unchanged. Residual processing also
+  stops after a completed game; a burned winner must not be fainted after the battle has ended.
+- Iron Leaves had 69 HP and could pay two 27-HP Life Orb costs. Recoil alone did not justify its sacrifice.
+  Fixed-depth replays change some rankings, but do not recover the original worlds/depth or prove a forced
+  win. Shallow-depth material preferences remain; no special preservation guard was added.
+- Optional Python binding mappings preserve the final-result field and the prior Disable metadata. Its
+  compile check passed after completing those mappings. No change to the live bot's interface.
+- **Final verification:** full `npm test` **535 passed**, zero failed/skipped; full Gen 9 Rust suite **975
+  passed**; independent Showdown terminal checks **18 passed**; three local simulator games completed
+  **182 / 91 / 67 decisions**, zero rejected actions/errors. TypeScript/release builds and diff checks pass.
+  No bot stop/restart, commit or push.
+
+## Dudunsparce follow-up and the next 20 games (2026-09-28)
+
+Full evidence: [BATTLE-AUDIT-2026-09-28-DUDUNSPARCE.md](BATTLE-AUDIT-2026-09-28-DUDUNSPARCE.md).
+
+- Reviewed **546 decisions**, **13 wins / 7 losses**, battles **2688823986–2688851779**. No server
+  errors, selected/sent mismatch, missing search record or current switch-name mismatch; one Jev timeout
+  fell back to the existing search. Special revive/recharge choices explain two zero-share records.
+- Fixed `statusIntoKnockout` counting Sucker Punch as a knockout threat to Thunder Wave/Iron Defense
+  (2688831398 turn 16). Thunderclap has the same condition and is covered; ordinary attacks remain threats.
+- Fixed `setupRaceLost` giving Falinks another No Retreat boost with its volatile already active
+  (2688825443 turn 11). The already-trapped/no-volatile reuse exception is preserved.
+- **Dudunsparce 2688847541 is not claimed fixed.** Boost tracking, Steel Tera, Eviolite, failed Recover into
+  Calm Mind and the +6 Earth Power knockout reproduce correctly. The repeated full-HP Recover choices
+  were strategic errors by the combined ranking, with no forcing guard. No new heuristic was added.
+- Three new regressions fail before the patch and pass after it; the fourth is a passing engine control
+  for the reported Dudunsparce mechanics. The two changed guards produce identical results on **544/546**
+  recorded decisions and remove only the two verified false concerns on the other two.
+- Verification: full `npm test` **539 passed**, zero failed/skipped; independent Showdown mechanics
+  **11 passed**; existing three full simulator games **182 / 91 / 67 decisions**, zero rejected/errors.
+  Build and diff checks pass. No weights, guard strengths, prompts, search budgets or process controls changed.

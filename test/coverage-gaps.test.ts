@@ -462,7 +462,7 @@ test('a lower worst hit is not protection when the new type lets another attack 
   assert.ok(def.worstIncomingPercentBecomes < def.wasBefore, 'Explosion, the worst hit, is resisted');
   assert.ok(def.letsTheseKnockUsOut!.includes('Thunderbolt'), JSON.stringify(def));
   const teraDraco = input.legalActions.find(a => a.label === 'Draco Meteor + Tera Steel')!;
-  assert.match(redundantTera(input).get(teraDraco.id)!.reason, /lets Thunderbolt( and Volt Switch)? knock us out first/);
+  assert.match(redundantTera(input).get(teraDraco.id)!.reason, /surviving hit from Thunderbolt( and Volt Switch)? into a knockout/);
 });
 
 test('Tera that buys no knockout and makes us weaker to the incoming hit is skipped', () => {

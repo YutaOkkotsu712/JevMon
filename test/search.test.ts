@@ -8,6 +8,7 @@ import type { DecisionProvider, DecisionResult } from '../src/decisions/Decision
 import { generateLegalActions, parseChoiceRequest } from '../src/battle/LegalActionGenerator.js';
 import { extractFeatures } from '../src/strategy/features.js';
 import { readConfig } from '../src/config/env.js';
+import { dex, id } from '../src/pokemon/data.js';
 import { battle, ours, room } from './helpers.js';
 
 const BIN = 'vendor/poke-engine/target/release/poke-engine';
@@ -95,6 +96,62 @@ test('engine output is parsed and mapped back onto our legal actions', () => {
   const names = actions.map(a => engineName(a, b.state));
   assert.ok(names.includes('closecombat') && names.includes('closecombat-tera') === false && names.includes('magearna'));
 });
+
+function alcremieSetup(forme: string) {
+  const roster = [ours('Mienshao', 83, ['Close Combat', 'Fake Out', 'U-turn'], 'Regenerator', 'Assault Vest', 'Dark'),
+    { ...ours('Alcremie', 90, ['Calm Mind', 'Recover', 'Alluring Voice', 'Tera Blast'], 'Aroma Veil', 'Leftovers', 'Ground'),
+      details: `${forme}, L90` }];
+  const b = battle(roster, 'Lunala', 70);
+  b.state.sides.p2.teamSize = 1;
+  b.feed('|-terastallize|p2a: Foe|Dark');
+  const request = parseChoiceRequest(JSON.stringify(b.payload(2, roster[0]!.maxHP)))!;
+  const actions = generateLegalActions(request);
+  return { b, actions, alcremie: actions.find(a => a.command === 'switch 2')! };
+}
+
+for (const forme of ['Alcremie', ...dex.species.get('Alcremie').cosmeticFormes!]) {
+  test(`${forme} switch matches the species actually sent to the engine`, () => {
+    const { b, alcremie } = alcremieSetup(forme);
+    const serialized = toEngineState(b.state, 'p1', sampleWorld(b.state, 'p1', seeded(11))).state;
+    assert.equal(serialized.split('/')[0]!.split('=')[1]!.split(',')[0], 'ALCREMIE');
+    assert.equal(engineName(alcremie, b.state), 'alcremie', 'cosmetic flavour must not discard the engine result');
+    assert.equal(alcremie.command, 'switch 2', 'the server still receives the original team slot');
+  });
+}
+
+test('other species and mechanically distinct formes keep their existing switch names', () => {
+  const { b, actions } = setup();
+  const action = actions.find(a => a.command === 'switch 2')!;
+  const target = b.state.sides.p1.team.find(p => p.slot === 2)!;
+  for (const species of ['Mienshao', 'Vivillon-Sun', 'Keldeo-Resolute', 'Rotom-Wash', 'Palafin-Hero', 'Minior-Meteor', 'Alcremie-Gmax']) {
+    target.species = species;
+    assert.equal(engineName(action, b.state), id(species), species);
+  }
+});
+
+for (const solver of ['mcts', 'replacement', 'endgame'] as const) {
+  test(`Alcremie cosmetic switch retains its search result through ${solver}`, { skip: !existsSync(BIN) && 'run npm run build:engine' }, async () => {
+    // 2688311523: the engine returned "alcremie", but the switch lookup used "alcremierainbowswirl", losing its votes.
+    let { b, actions, alcremie } = alcremieSetup('Alcremie-Rainbow-Swirl');
+    if (solver === 'replacement') {
+      const { side } = b.payload(3, 0);
+      side.pokemon[0]!.condition = '0 fnt';
+      const raw = JSON.stringify({ rqid: 3, side, forceSwitch: [true] });
+      b.feed(`|faint|p1a: Mienshao\n|request|${raw}`);
+      actions = generateLegalActions(parseChoiceRequest(raw)!);
+      alcremie = actions.find(a => a.command === 'switch 2')!;
+    }
+    const result = (await searchWorlds(b.state, actions, { bin: BIN, worlds: 1, msPerWorld: 100, concurrency: 1, random: seeded(11),
+      ...(solver === 'endgame' ? { endgame: { maxPokemon: 3, worlds: 1, msPerWorld: 100 } } : {}) }))!;
+    assert.equal(result.worldsSearched, 1);
+    assert.equal(result.solver, solver === 'endgame' ? 'endgame' : undefined);
+    assert.ok(Number.isFinite(result.values[alcremie.id]?.meanScore), 'Alcremie must have a real search score');
+    // A low-visit voluntary switch can legitimately round to 0.000; the sole replacement must retain all its votes.
+    if (solver === 'replacement') assert.equal(result.values[alcremie.id]!.visitShare, 1);
+    const total = actions.reduce((n, a) => n + result.values[a.id]!.visitShare, 0);
+    assert.ok(Math.abs(total - 1) < 0.01, `no search probability disappears: ${total}`);
+  });
+}
 
 test('search runs end to end on the real engine when it is built', { skip: !existsSync(BIN) && 'run npm run build:engine' }, async () => {
   const { b, actions } = setup();

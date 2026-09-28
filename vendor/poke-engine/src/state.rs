@@ -791,6 +791,7 @@ pub struct VolatileStatusDurations {
     pub slowstart: i8,
     pub taunt: i8,
     pub yawn: i8,
+    pub disable: (i8, i8),
 }
 
 impl Default for VolatileStatusDurations {
@@ -802,6 +803,7 @@ impl Default for VolatileStatusDurations {
             slowstart: 0,
             taunt: 0,
             yawn: 0,
+            disable: (0, 0),
         }
     }
 }
@@ -830,10 +832,14 @@ impl VolatileStatusDurations {
     }
 
     pub fn serialize(&self) -> String {
-        format!(
+        let mut serialized = format!(
             "{};{};{};{};{};{}",
             self.confusion, self.encore, self.lockedmove, self.slowstart, self.taunt, self.yawn
-        )
+        );
+        if self.disable.0 > 0 {
+            serialized.push_str(&format!(";{};{}", self.disable.0, self.disable.1));
+        }
+        serialized
     }
     pub fn deserialize(serialized: &str) -> VolatileStatusDurations {
         let split: Vec<&str> = serialized.split(";").collect();
@@ -844,6 +850,10 @@ impl VolatileStatusDurations {
             slowstart: split[3].parse::<i8>().unwrap(),
             taunt: split[4].parse::<i8>().unwrap(),
             yawn: split[5].parse::<i8>().unwrap(),
+            // Older state strings have no Disable metadata.
+            disable: if split.len() >= 8 {
+                (split[6].parse::<i8>().unwrap(), split[7].parse::<i8>().unwrap())
+            } else { (0, 0) },
         }
     }
 }
@@ -1085,6 +1095,23 @@ pub struct Side {
     pub switch_out_move_second_saved_move: Choices,
 }
 impl Side {
+    pub fn disabled_move(&self) -> Option<Choices> {
+        if !self.volatile_statuses.contains(&PokemonVolatileStatus::DISABLE)
+            || self.volatile_status_durations.disable.0 <= 0 { return None; }
+        let moves = &self.get_active_immutable().moves;
+        match self.volatile_status_durations.disable.1 {
+            0 => Some(moves.m0.id), 1 => Some(moves.m1.id),
+            2 => Some(moves.m2.id), 3 => Some(moves.m3.id), _ => None,
+        }
+    }
+
+    pub fn set_disable(&mut self, side_ref: SideReference, next: (i8, i8), instructions: &mut Vec<Instruction>) {
+        let old = self.volatile_status_durations.disable;
+        if old != next {
+            instructions.push(Instruction::ChangeDisable(side_ref, old, next));
+            self.volatile_status_durations.disable = next;
+        }
+    }
     fn io_conditional_print(&self) -> String {
         let mut output = String::new();
         if self.baton_passing {
@@ -1333,6 +1360,8 @@ pub struct State {
     pub team_preview: bool,
     pub use_last_used_move: bool,
     pub use_damage_dealt: bool,
+    // A final move can faint both last Pokemon. HP alone then loses the Gen 9 faint-order winner.
+    pub final_move_winner: Option<SideReference>,
 }
 impl Default for State {
     fn default() -> State {
@@ -1354,6 +1383,7 @@ impl Default for State {
             team_preview: false,
             use_damage_dealt: false,
             use_last_used_move: false,
+            final_move_winner: None,
         };
 
         // many tests rely on the speed of side 2's active pokemon being greater than side_one's
@@ -1366,6 +1396,9 @@ impl State {
         //  0 if battle is not over
         //  1 if side one has won
         // -1 if side two has won
+        if let Some(winner) = self.final_move_winner {
+            return if winner == SideReference::SideOne { 1.0 } else { -1.0 };
+        }
         if self.side_one.pokemon.into_iter().all(|p| p.hp <= 0) {
             return -1.0;
         }
@@ -1814,6 +1847,10 @@ impl State {
 
     pub fn apply_one_instruction(&mut self, instruction: &Instruction) {
         match instruction {
+            Instruction::SetFinalMoveWinner(side) => self.final_move_winner = Some(*side),
+            Instruction::ChangeDisable(side, _, next) => {
+                self.get_side(side).volatile_status_durations.disable = *next;
+            }
             Instruction::Damage(instruction) => {
                 self.damage(&instruction.side_ref, instruction.damage_amount)
             }
@@ -2024,6 +2061,10 @@ impl State {
 
     pub fn reverse_one_instruction(&mut self, instruction: &Instruction) {
         match instruction {
+            Instruction::SetFinalMoveWinner(_) => self.final_move_winner = None,
+            Instruction::ChangeDisable(side, old, _) => {
+                self.get_side(side).volatile_status_durations.disable = *old;
+            }
             Instruction::Damage(instruction) => {
                 self.heal(&instruction.side_ref, instruction.damage_amount)
             }
@@ -2255,7 +2296,7 @@ impl State {
     }
 
     pub fn serialize(&self) -> String {
-        format!(
+        let mut serialized = format!(
             "{}/{}/{}/{}/{}/{}",
             self.side_one.serialize(),
             self.side_two.serialize(),
@@ -2263,7 +2304,11 @@ impl State {
             self.terrain.serialize(),
             self.trick_room.serialize(),
             self.team_preview
-        )
+        );
+        if let Some(winner) = self.final_move_winner {
+            serialized.push_str(if winner == SideReference::SideOne { "/s1" } else { "/s2" });
+        }
+        serialized
     }
 
     /// ```
@@ -2462,6 +2507,11 @@ impl State {
             terrain: StateTerrain::deserialize(split[3]),
             trick_room: StateTrickRoom::deserialize(split[4]),
             team_preview: split[5].parse::<bool>().unwrap(),
+            final_move_winner: match split.get(6).copied() {
+                Some("s1") => Some(SideReference::SideOne),
+                Some("s2") => Some(SideReference::SideTwo),
+                _ => None,
+            },
             use_damage_dealt: false,
             use_last_used_move: false,
         };

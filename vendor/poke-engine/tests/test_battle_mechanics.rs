@@ -23092,9 +23092,11 @@ fn test_disable_stops_the_move_the_target_used_last() {
         Choices::DISABLE,
         Choices::TACKLE,
     );
-    let hit = instructions.iter().position(|i| i.instruction_list.iter().any(|x| matches!(x, Instruction::DisableMove(_)))).expect("a branch where Disable lands");
+    let hit = (0..instructions.len()).find(|i| applied(&instructions, &state, *i).side_two.disabled_move() == Some(Choices::TACKLE)).expect("a branch where Disable lands");
     let after = applied(&instructions, &state, hit);
-    assert!(after.side_two.get_active_immutable().moves.m0.disabled);
+    assert!(!after.get_all_options().1.contains(&MoveChoice::Move(PokemonMoveIndex::M0)));
+    assert_eq!(after.side_two.volatile_status_durations.disable, (3, 0));
+    assert_eq!(after.side_one.get_active_immutable().hp, state.side_one.get_active_immutable().hp, "the faster Disable prevents this turn's Tackle too");
 }
 
 #[test]
@@ -23109,7 +23111,11 @@ fn test_cursed_body_disables_the_hit_three_times_in_ten() {
     );
     let disabled: f32 = instructions
         .iter()
-        .filter(|i| i.instruction_list.iter().any(|x| matches!(x, Instruction::DisableMove(d) if d.side_ref == SideReference::SideOne)))
+        .filter(|i| {
+            let mut after = state.clone();
+            after.apply_instructions(&i.instruction_list);
+            after.side_one.disabled_move() == Some(Choices::TACKLE)
+        })
         .map(|i| i.percentage)
         .sum();
     assert!((disabled - 30.0).abs() < 0.01, "30% of branches disable Tackle, got {}", disabled);

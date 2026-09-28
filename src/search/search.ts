@@ -2,9 +2,10 @@ import { execFile } from 'node:child_process';
 import { availableParallelism } from 'node:os';
 import type { BattleState } from '../battle/BattleState.js';
 import type { BattleAction } from '../battle/LegalActionGenerator.js';
-import { dex, id } from '../pokemon/data.js';
+import { canonicalSpecies, dex, id } from '../pokemon/data.js';
 import { sampleWorld, toEngineState, type Legal } from './engineState.js';
 import { buildPokemon } from '../strategy/calcCore.js';
+import { afterTeraShift } from '../strategy/teraShift.js';
 
 /**
  * Lookahead over sampled worlds, the part of Jaxcalibur its author credits with 100–150 Elo and the core of Foul Play.
@@ -139,7 +140,13 @@ export function engineName(action: BattleAction, state: BattleState): string | n
   if (action.kind === 'switch') {
     const side = state.mySide ? state.sides[state.mySide] : undefined;
     const target = side?.team.find(p => p.slot === Number(action.command.split(' ')[1]));
-    return target ? id(dex.species.get(target.species).name) : null;
+    if (!target) return null;
+    const species = dex.species.get(afterTeraShift(target).species);
+    if (species.baseSpecies === 'Minior') {
+      try { return id(buildPokemon(target).name); } catch { /* retain the named form if private stats cannot be fitted */ }
+    }
+    // These cosmetic names are collapsed in engineState; recover their votes under that same species name.
+    return id(['Alcremie', 'Gastrodon', 'Minior', 'Sawsbuck'].includes(species.baseSpecies) ? canonicalSpecies(species.name) : species.name);
   }
   if (action.kind !== 'move') return null;
   const move = dex.moves.get(action.label.split(' + Tera')[0]!);

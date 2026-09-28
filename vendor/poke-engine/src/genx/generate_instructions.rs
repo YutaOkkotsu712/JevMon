@@ -23,7 +23,7 @@ use crate::instruction::{ChangeTimesAttackedInstruction,
 };
 use crate::instruction::{ChangeAbilityInstruction, ToggleTerastallizedInstruction};
 use crate::instruction::{DecrementFutureSightInstruction, FormeChangeInstruction};
-use crate::instruction::{DecrementPPInstruction, DisableMoveInstruction, SetLastUsedMoveInstruction};
+use crate::instruction::{DecrementPPInstruction, SetLastUsedMoveInstruction};
 
 use super::damage_calc::calculate_futuresight_damage;
 use super::damage_calc::{calculate_damage, type_effectiveness_modifier, DamageRolls};
@@ -709,20 +709,14 @@ fn get_instructions_from_volatile_statuses(
             .insert(volatile_status.volatile_status);
         incoming_instructions.instruction_list.push(ins);
 
-        // Disable stops the move the target used last. The move lasts four turns; here it lasts until the target
-        // switches out, which re-enables it. Before this the volatile was set and blocked nothing, for Disable itself
-        // and for Cursed Body.
+        // Keep Disable separate from Choice/other flags so its expiry cannot unlock unrelated moves.
         if volatile_status.volatile_status == PokemonVolatileStatus::DISABLE {
             if let LastUsedMove::Move(index) = side.last_used_move {
                 let active = side.get_active();
-                if !active.moves[&index].disabled && active.moves[&index].id != Choices::NONE {
-                    active.moves[&index].disabled = true;
-                    incoming_instructions
-                        .instruction_list
-                        .push(Instruction::DisableMove(DisableMoveInstruction {
-                            side_ref: target_side,
-                            move_index: index,
-                        }));
+                if active.moves[&index].id != Choices::NONE && active.moves[&index].pp > 0 {
+                    // Applied after the target acted: five residual ticks; before/during its action: four.
+                    let turns = if volatile_status.target == MoveTarget::Opponent && !attacker_choice.first_move { 5 } else { 4 };
+                    side.set_disable(target_side, (turns, index as i8), &mut incoming_instructions.instruction_list);
                 }
             }
         }
@@ -1723,6 +1717,8 @@ fn cannot_use_move(state: &State, choice: &Choice, attacking_side_ref: &SideRefe
         .contains(&PokemonVolatileStatus::TAUNT)
         && matches!(choice.category, MoveCategory::Status)
     {
+        return true;
+    } else if attacking_side.disabled_move() == Some(choice.move_id) {
         return true;
     } else if attacking_side
         .volatile_statuses
@@ -2938,6 +2934,11 @@ fn add_end_of_turn_instructions(
     mut incoming_instructions: &mut StateInstructions,
     first_move_side: &SideReference,
 ) -> Vec<StateInstructions> {
+    // A final knockout ends Gen 9 before residual damage. Burning the winner down to zero here
+    // can otherwise turn its win into a loss, even after move/recoil faint order was handled correctly.
+    if cfg!(feature = "gen9") && state.battle_is_over() != 0.0 {
+        return vec![];
+    }
     if state.side_one.force_switch || state.side_two.force_switch {
         return vec![];
     }
@@ -3346,6 +3347,17 @@ fn add_end_of_turn_instructions(
         let side = state.get_side(side_ref);
         if side.get_active().hp == 0 {
             continue;
+        }
+
+        let (left, slot) = side.volatile_status_durations.disable;
+        if left > 0 && side.volatile_statuses.contains(&PokemonVolatileStatus::DISABLE) {
+            side.set_disable(*side_ref, if left == 1 { (0, 0) } else { (left - 1, slot) }, &mut incoming_instructions.instruction_list);
+            if left == 1 {
+                side.volatile_statuses.remove(&PokemonVolatileStatus::DISABLE);
+                incoming_instructions.instruction_list.push(Instruction::RemoveVolatileStatus(RemoveVolatileStatusInstruction {
+                    side_ref: *side_ref, volatile_status: PokemonVolatileStatus::DISABLE,
+                }));
+            }
         }
 
         if side
@@ -4023,9 +4035,37 @@ fn apply_soul_heart_after_faints(state: &mut State, instructions: &mut StateInst
     instructions.instruction_list = completed;
 }
 
+// Showdown Gen 9 awards a final double faint to the side whose Pokemon faints last. In particular,
+// a last-target KO followed by Life Orb recoil is the attacker's win, regardless of side number.
+// Only replay the rare terminal double faint; ordinary turns and residual ordering are unchanged.
+fn record_final_move_winner(state: &mut State, instructions: &mut StateInstructions) {
+    if !cfg!(feature = "gen9") || state.final_move_winner.is_some()
+        || state.side_one.visible_alive_pkmn() > 0 || state.side_two.visible_alive_pkmn() > 0
+    {
+        return;
+    }
+    state.reverse_instructions(&instructions.instruction_list);
+    let mut last_faint = None;
+    for instruction in &instructions.instruction_list {
+        let before = [state.side_one.get_active_immutable().hp, state.side_two.get_active_immutable().hp];
+        state.apply_one_instruction(instruction);
+        for (index, side) in [SideReference::SideOne, SideReference::SideTwo].iter().enumerate() {
+            if before[index] > 0 && state.get_side_immutable(side).get_active_immutable().hp == 0 {
+                last_faint = Some(*side);
+            }
+        }
+    }
+    if let Some(side) = last_faint {
+        let instruction = Instruction::SetFinalMoveWinner(side);
+        state.apply_one_instruction(&instruction);
+        instructions.instruction_list.push(instruction);
+    }
+}
+
 fn after_move_finish(state: &mut State, final_instructions: &mut Vec<StateInstructions>) {
     for state_instructions in final_instructions.iter_mut() {
         apply_soul_heart_after_faints(state, state_instructions);
+        record_final_move_winner(state, state_instructions);
 
         // check if anybody has negative boosts and a whiteherb
         // if so, consume the item and set the boosts to 0
@@ -4779,6 +4819,93 @@ pub fn calculate_both_damage_rolls(
     );
 
     (damages_dealt_s1, damages_dealt_s2)
+}
+
+#[cfg(test)]
+mod disable_regressions {
+    use super::*;
+    use crate::state::Move;
+
+    fn disabled_state() -> State {
+        let mut state = State::default();
+        state.side_one.get_active().moves.m0 = Move::deserialize("SPLASH;false;20");
+        state.side_two.get_active().moves.m0 = Move::deserialize("TACKLE;false;20");
+        state.side_two.get_active().moves.m1 = Move::deserialize("THUNDERBOLT;true;20");
+        state.side_two.get_active().moves.m2 = Move::deserialize("SPLASH;false;20");
+        state.side_two.last_used_move = LastUsedMove::Move(PokemonMoveIndex::M2);
+        state.side_two.volatile_statuses.insert(PokemonVolatileStatus::DISABLE);
+        state.side_two.volatile_status_durations.disable = (1, 0);
+        state
+    }
+
+    #[test]
+    fn disable_expiry_preserves_other_restrictions_and_reverses_exactly() {
+        let mut state = disabled_state();
+        let before = state.serialize();
+        assert_eq!(state.side_two.disabled_move(), Some(Choices::TACKLE));
+        assert!(!state.get_all_options().1.contains(&MoveChoice::Move(PokemonMoveIndex::M0)));
+        let branches = generate_instructions_from_move_pair(&mut state,
+            &MoveChoice::Move(PokemonMoveIndex::M0), &MoveChoice::Move(PokemonMoveIndex::M2), false);
+        assert_eq!(state.serialize(), before, "search must undo its temporary changes");
+        for branch in branches {
+            state.apply_instructions(&branch.instruction_list);
+            assert_eq!(state.side_two.disabled_move(), None);
+            assert!(!state.side_two.volatile_statuses.contains(&PokemonVolatileStatus::DISABLE));
+            assert!(state.get_all_options().1.contains(&MoveChoice::Move(PokemonMoveIndex::M0)));
+            assert!(state.side_two.get_active().moves.m1.disabled, "do not unlock a different Choice-restricted move");
+            state.reverse_instructions(&branch.instruction_list);
+            assert_eq!(state.serialize(), before);
+        }
+    }
+
+    #[test]
+    fn disable_switch_clears_slot_and_timer_without_affecting_replacement() {
+        let mut state = disabled_state();
+        state.side_two.volatile_status_durations.disable = (3, 0);
+        let before = state.serialize();
+        let branches = generate_instructions_from_move_pair(&mut state,
+            &MoveChoice::Move(PokemonMoveIndex::M0), &MoveChoice::Switch(PokemonIndex::P1), false);
+        for branch in branches {
+            state.apply_instructions(&branch.instruction_list);
+            assert_eq!(state.side_two.volatile_status_durations.disable, (0, 0));
+            assert_eq!(state.side_two.disabled_move(), None);
+            state.reverse_instructions(&branch.instruction_list);
+            assert_eq!(state.serialize(), before);
+        }
+    }
+
+    #[test]
+    fn disable_application_uses_named_slot_and_correct_residual_duration() {
+        for (target, first, turns) in [(MoveTarget::Opponent, true, 4), (MoveTarget::Opponent, false, 5),
+            (MoveTarget::User, true, 4), (MoveTarget::User, false, 4)] {
+            let mut state = State::default();
+            let side_ref = if target == MoveTarget::User { SideReference::SideOne } else { SideReference::SideTwo };
+            let side = state.get_side(&side_ref);
+            side.get_active().moves.m2 = Move::deserialize("TACKLE;false;20");
+            side.last_used_move = LastUsedMove::Move(PokemonMoveIndex::M2);
+            let before = state.serialize();
+            let mut choice = MOVES.get(&Choices::DISABLE).unwrap().clone(); choice.first_move = first;
+            let mut instructions = StateInstructions::default();
+            get_instructions_from_volatile_statuses(&mut state, &choice,
+                &VolatileStatus { target, volatile_status: PokemonVolatileStatus::DISABLE },
+                &SideReference::SideOne, &mut instructions);
+            assert_eq!(state.get_side(&side_ref).volatile_status_durations.disable, (turns, 2));
+            assert_eq!(state.get_side(&side_ref).disabled_move(), Some(Choices::TACKLE));
+            state.reverse_instructions(&instructions.instruction_list);
+            assert_eq!(state.serialize(), before);
+        }
+    }
+
+    #[test]
+    fn disable_metadata_round_trips_and_old_states_still_parse() {
+        let state = disabled_state();
+        let serialized = state.serialize();
+        let parsed = State::deserialize(&serialized);
+        assert_eq!(parsed.side_two.volatile_status_durations.disable, (1, 0));
+        assert_eq!(parsed.side_two.disabled_move(), Some(Choices::TACKLE));
+        assert_eq!(parsed.side_two.volatile_status_durations.serialize(), state.side_two.volatile_status_durations.serialize());
+        assert_eq!(crate::state::VolatileStatusDurations::deserialize("0;0;0;0;0;0").disable, (0, 0));
+    }
 }
 
 #[cfg(test)]

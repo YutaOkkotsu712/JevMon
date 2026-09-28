@@ -42,6 +42,7 @@ impl StateInstructions {
 // https://stackoverflow.com/questions/50686411/whats-the-usual-way-to-create-a-vector-of-different-structs
 #[derive(PartialEq, Clone)]
 pub enum Instruction {
+    SetFinalMoveWinner(SideReference),
     Switch(SwitchInstruction),
     ApplyVolatileStatus(ApplyVolatileStatusInstruction),
     RemoveVolatileStatus(RemoveVolatileStatusInstruction),
@@ -51,6 +52,8 @@ pub enum Instruction {
     Boost(BoostInstruction),
     ChangeSideCondition(ChangeSideConditionInstruction),
     ChangeVolatileStatusDuration(ChangeVolatileStatusDurationInstruction),
+    // (turns remaining, move slot); independent of Choice/other disabled flags.
+    ChangeDisable(SideReference, (i8, i8), (i8, i8)),
     ChangeWeather(ChangeWeather),
     DecrementWeatherTurnsRemaining,
     ChangeTerrain(ChangeTerrain),
@@ -100,6 +103,10 @@ pub enum Instruction {
 impl fmt::Debug for Instruction {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
+            Instruction::SetFinalMoveWinner(side) => write!(f, "SetFinalMoveWinner {:?}", side),
+            Instruction::ChangeDisable(side, old, new) => {
+                write!(f, "ChangeDisable {:?}: {:?} -> {:?}", side, old, new)
+            }
             Instruction::Switch(s) => {
                 write!(
                     f,

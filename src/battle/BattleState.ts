@@ -16,7 +16,7 @@ export interface PokemonState {
   knownMoves: string[];
   copiedMoves: string[];
   stats: Record<string, number>;
-  volatiles: Record<string, { sinceTurn: number; data: string | null }>;
+  volatiles: Record<string, { sinceTurn: number; data: string | null; turns?: number }>;
   baseAbility: string | null;
   /** The last berry this Pokémon ate itself, which Harvest can grow back; one knocked off or stolen does not count. */
   lastBerry?: string;

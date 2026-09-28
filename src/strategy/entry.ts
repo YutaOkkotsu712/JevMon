@@ -3,6 +3,7 @@ import { grounded, hazardExposure, pokemonTypes } from '../pokemon/mechanics.js'
 import { dex, id } from '../pokemon/data.js';
 import { buildPokemon } from './calcCore.js';
 import { inferOpponent } from './inference.js';
+import { afterTeraShift } from './teraShift.js';
 
 const copiedStats = ['atk', 'def', 'spa', 'spd', 'spe'] as const;
 /**
@@ -32,7 +33,7 @@ function imposterCopy(s: BattleState, q: PokemonState, side: SideId) {
 /** Project a known bench Pokémon through entry hazards without changing retained battle state. */
 export function afterEntry(s: BattleState, p: PokemonState, side: SideId): PokemonState {
   if (p.entryProjected || s.sides[side].activeId === p.id || p.fainted) return p;
-  const q = structuredClone(p); q.entryProjected = true;
+  const q = structuredClone(afterTeraShift(p)); q.entryProjected = true;
   const ability = q.abilitySuppressed ? '' : id(q.ability), item = ability === 'klutz' ? '' : id(q.item);
   // Heavy-Duty Boots stops every hazard, but not what the Pokémon's own ability does on arrival.
   const boots = item === 'heavydutyboots';

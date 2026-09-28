@@ -372,7 +372,7 @@ export function redundantTera(input: DecisionInput) {
     const onlyHit = doomed && turnOrder(s, afterTerastallizing(me, tera), name)?.order === 'ours-first';
     if (damageRange(s, name)?.conditionalKO === 'all-sampled-rolls') {
       result.set(action.id, { by: 'tera', reason: letsKO
-        ? `${name} already knocks out ${foe.species} at every sampled roll without Terastallising, and Tera ${tera} lets ${letsKO} knock us out first, so it costs the knockout it was meant to add to`
+        ? `${name} already knocks out ${foe.species} at every sampled roll without Terastallising, and Tera ${tera} would turn a surviving hit from ${letsKO} into a knockout`
         : `${name} already knocks out ${foe.species} at every sampled roll without Terastallising, and Tera ${tera} lowers nothing we take this turn, so it spends Tera for surplus damage` });
       continue;
     }
@@ -872,7 +872,7 @@ export function outhealed(input: DecisionInput) {
     // Recover at 0.52 (2687740108).
     if (move.category === 'Status' && (move.flags?.heal || move.sideCondition ||
         (['defog', 'courtchange', 'tidyup'].includes(move.id) && ourHazards))) continue;
-    if (notForTheDamage.has(move.id)) continue;
+    if (move.forceSwitch || notForTheDamage.has(move.id)) continue;
     // Salt Cure and Leech Seed start a loss no heal stops, and Yawn puts the healer to sleep or out: the first of each
     // breaks the stall. Once it is in place, another is only its hit, or fails.
     if (['saltcure', 'leechseed', 'yawn'].includes(move.id) && !holds(move.id) && !(move.id === 'yawn' && foe.status)) continue;
@@ -1210,7 +1210,10 @@ export function setupRaceLost(input: DecisionInput) {
   // Each sampled set races with its own ability; one set whose revealed moves cannot raise its Speed means no race.
   const sets = inferOpponent(foe).candidates;
   const abilityOf = (c: Candidate | undefined) => foe.abilitySuppressed ? '' : foe.ability ?? c?.ability ?? '';
-  const racerFor = (c: Candidate | undefined) => foe.revealedMoves.map(m => ({ move: dex.moves.get(m).name, gain: speedGain(m, abilityOf(c)) }))
+  // A revealed move is not necessarily reusable: No Retreat fails while its volatile is active.
+  // 2688825443 incorrectly vetoed Shift Gear by giving Falinks a second No Retreat boost.
+  const racerFor = (c: Candidate | undefined) => foe.revealedMoves.filter(m => !repeatedSelfEffectFailure(foe, m))
+    .map(m => ({ move: dex.moves.get(m).name, gain: speedGain(m, abilityOf(c)) }))
     .sort((a, b) => b.gain - a.gain)[0];
   const racers = (sets.length ? sets : [undefined]).map(c => ({ c, racer: racerFor(c) }));
   if (racers.some(r => !r.racer || r.racer.gain <= 0)) return result;
@@ -1948,17 +1951,22 @@ export function statusIntoKnockout(input: DecisionInput) {
   const side = s.mySide, foeSide: SideId = side === 'p1' ? 'p2' : 'p1';
   const me = s.sides[side].team.find(p => p.id === s.sides[side].activeId), foe = s.sides[foeSide].team.find(p => p.id === s.sides[foeSide].activeId);
   if (!me || !foe || me.fainted || foe.fainted || !escapable(input)) return result;
-  const killers = (incomingThreats(s, me, side, Infinity)?.damagingMoves ?? []).filter(m => m.revealed && m.conditionalKO === 'all-sampled-rolls');
-  if (!killers.length) return result;
+  const threats = (incomingThreats(s, me, side, Infinity)?.damagingMoves ?? []).filter(m => m.revealed && m.conditionalKO === 'all-sampled-rolls');
+  if (!threats.length) return result;
   const tera = input.request?.active?.[0]?.canTerastallize;
   const saved = tera ? defensiveTera(s, me, side, tera) : null;
-  const teraSaves = !!saved && (saved.stopsItFromKnockingUsOut || killers.every(k => saved.stopsTheseFromKnockingUsOut?.includes(k.move)));
-  const named = killers.map(k => k.move).join(' or ');
   for (const action of input.legalActions) {
     if (action.kind !== 'move') continue;
     const move = dex.moves.get(action.label.split(' + Tera')[0]!);
-    if (!move.exists || move.category !== 'Status' || (action.command.endsWith(' terastallize') && teraSaves)) continue;
+    if (!move.exists || move.category !== 'Status') continue;
+    // These attacks fail against a status choice (Showdown retains an exception for Me First).
+    // 2688831398: Sucker Punch incorrectly vetoed Registeel's Thunder Wave and Iron Defense.
+    const killers = threats.filter(k => move.id === 'mefirst' || !['suckerpunch', 'thunderclap'].includes(id(k.move)));
+    if (!killers.length) continue;
+    const teraSaves = !!saved && (saved.stopsItFromKnockingUsOut || killers.every(k => saved.stopsTheseFromKnockingUsOut?.includes(k.move)));
+    if (action.command.endsWith(' terastallize') && teraSaves) continue;
     if (turnOrder(s, me, move.name)?.order !== 'theirs-first') continue;
+    const named = killers.map(k => k.move).join(' or ');
     result.set(action.id, { by: 'order', reason: `${foe.species} moves first and its revealed ${named} knocks ${me.species} out at every sampled roll, so ${move.name} never happens; a switch survives the hit` });
   }
   return result;

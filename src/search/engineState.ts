@@ -4,6 +4,8 @@ import { buildPokemon, levelOf } from '../strategy/calcCore.js';
 import { bestFitCandidates, inferOpponent } from '../strategy/inference.js';
 import { speedSummary } from '../strategy/speed.js';
 import { canonicalSpecies, dex, id } from '../pokemon/data.js';
+import { afterTeraShift } from '../strategy/teraShift.js';
+import { disabledMove } from '../strategy/disable.js';
 import joint from '../data/gen9-joint-sets.json' with { type: 'json' };
 import pools from '../data/gen9-sets.json' with { type: 'json' };
 import { baseSpecies, complementarySetWeight, fitsTeam, revealedProfile, speciesPrior } from './teamPrior.js';
@@ -98,13 +100,17 @@ const moveNames = (p: PokemonState, set: Candidate | undefined, known: boolean) 
   (known ? p.knownMoves.map(id) : [...new Set([...p.revealedMoves.map(id), ...(set?.moves ?? [])])]).slice(0, 4);
 
 function pokemon(p: PokemonState, set: Candidate | undefined, known: boolean, usable?: Set<string>, teraSpent = false): string | null {
+  p = afterTeraShift(p, set);
   let built;
   try { built = buildPokemon(p, set); } catch { return null; }
   // Transform copies the target's species, types, weight, stats (all but HP) and moves, each with 5 PP; HP and item stay
   // its own. Written as the Ditto it was, the search saw a 12% Normal-type with nothing but Transform, where there stood a
   // +2 Choice Scarf copy of our Groudon: harmless things are worth keeping alive, so it chose Ruination, which cannot
   // knock out, over any attack that would have, and the copy's Precipice Blades took Ting-Lu next turn (2687224152).
-  const species = dex.species.get(canonicalSpecies(p.transformedInto ?? p.species));
+  // Our private Minior request keeps its core colour even while its stats identify Meteor form. Giving the
+  // engine core's ID with Meteor's stats prevents Shields Down from updating those stats when the shell breaks.
+  const species = dex.species.get(canonicalSpecies(p.transformedInto ??
+    (dex.species.get(p.species).baseSpecies === 'Minior' ? built.name : p.species)));
   if (!species.exists) return null;
   const types = [species.types[0], species.types[1] ?? 'Typeless'];
   // Soak, Protean, Libero and Burn Up change the typing until it switches out; the engine reverts to the base types
@@ -129,8 +135,13 @@ function pokemon(p: PokemonState, set: Candidate | undefined, known: boolean, us
   const moves = (copied ?? moveNames(p, set, known)).map(m => {
     const move = dex.moves.get(m);
     const pp = copied ? 5 : known ? p.movePP[move.id]?.remaining : undefined;
+    const choiceLockedOut = !!p.lastMoveUsed && id(p.lastMoveUsed) !== move.id &&
+      (['CHOICEBAND', 'CHOICESPECS', 'CHOICESCARF'].includes(item) || ability === 'GORILLATACTICS');
+    // Disable has its own expiring restriction. Do not also write a permanent flag for our request's disabled
+    // slot, but preserve a simultaneous Choice lock. Encore and Taunt are checked separately by the engine.
+    const restricted = !!usable && !usable.has(move.id) && (disabledMove(p) !== move.id || choiceLockedOut);
     // Our active's moves are limited to what the request offers, which is how a Choice lock, Encore or Taunt reaches it.
-    return `${upper(move.id)};${!!usable && !usable.has(move.id)};${Math.max(0, pp ?? Math.floor(move.pp * 8 / 5) - (p.ppSpent?.[move.id] ?? p.moveUses?.[move.id] ?? 0))}`;
+    return `${upper(move.id)};${restricted};${Math.max(0, pp ?? Math.floor(move.pp * 8 / 5) - (p.ppSpent?.[move.id] ?? p.moveUses?.[move.id] ?? 0))}`;
   });
   while (moves.length < 4) moves.push('NONE;true;0');
   const evs = set?.evs ? [set.evs.hp, set.evs.atk, set.evs.def, set.evs.spa, set.evs.spd, set.evs.spe].join(';') : '';
@@ -222,7 +233,12 @@ function side(s: BattleState, sideId: SideId, known: boolean, world: World, lega
   const counted = (key: string, most: number) => since(key) === undefined ? 0 : Math.min(most, elapsed(s, since(key)!));
   // Slow Start starts at 6 on entry and ends at 0, one step each end of turn.
   const slowStart = since('slowstart') === undefined ? 0 : Math.max(1, 6 - elapsed(s, since('slowstart')!));
-  const durations = [0, counted('encore', 2), locked ? Math.min(2, rampage!.turns) : 0, slowStart, counted('taunt', 2), counted('yawn', 1)].join(';');
+  const durationFields = [0, counted('encore', 2), locked ? Math.min(2, rampage!.turns) : 0, slowStart, counted('taunt', 2), counted('yawn', 1)];
+  const disable = Object.entries(me?.volatiles ?? {}).find(([k]) => id(k) === 'disable')?.[1];
+  const disabled = me && disabledMove(me);
+  const disabledSlot = me && disabled ? moveNames(me, known ? undefined : world.sets.get(me.id), known).indexOf(disabled) : -1;
+  if (disable && disabledSlot >= 0) durationFields.push(Math.max(1, (disable.turns ?? 4) - elapsed(s, disable.sinceTurn)), disabledSlot);
+  const durations = durationFields.join(';');
   const b = (stat: string) => me?.boosts[stat] ?? 0;
   // The opponent's HP is written in the sampled set's own units, so its Substitute must be too: a flat 100 made every
   // opposing shell 25 HP, a third of a real one on a typical 300-HP Pokémon. A shell already hit keeps what it has left.
@@ -247,9 +263,10 @@ function side(s: BattleState, sideId: SideId, known: boolean, world: World, lega
   // A pivot's replacement (U-turn, Volt Switch, Flip Turn, Parting Shot) after the opponent has already moved comes in
   // free: the turn is over for them. Told nothing, the engine let them attack whatever came in, which prices every slow
   // pivot as if it cost the replacement a hit. A faster pivot leaves their move to come, which the engine plays as usual,
-  // and a fainted active already gets them no move.
+  // and our fainted active already gets them no move. A pivot that KOs the foe must still pick our replacement first:
+  // without force_switch the engine offers only their replacement and drops every one of our switch scores.
   const opposing = s.sides[sideId === 'p1' ? 'p2' : 'p1'], foe = opposing.team.find(p => p.id === opposing.activeId);
-  const freeReplacement = !!legal?.forcedSwitch && !!me && !me.fainted && !!foe && !foe.fainted && foe.lastActedTurn === s.turn;
+  const freeReplacement = !!legal?.forcedSwitch && !!me && !me.fainted && !!foe && (foe.fainted || foe.lastActedTurn === s.turn);
   return { text: [...written, active, conditions, vols.map(x => `${x}:`).join(''), durations,
     vols.includes('SUBSTITUTE') ? subHP : 0,
     b('atk'), b('def'), b('spa'), b('spd'), b('spe'), b('accuracy'), b('evasion'),
