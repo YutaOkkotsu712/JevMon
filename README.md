@@ -6,15 +6,26 @@ veto the few moves that are provably self-defeating. Strict TypeScript, with a v
 
 ## Results
 
-Playing as [TheNameIsJev](https://pokemonshowdown.com/users/thenameisjev) on the public ladder, 23–25 September 2026:
+Playing as [TheNameIsJev](https://pokemonshowdown.com/users/thenameisjev) on the public ladder against human players,
+JevMon reached **#7 in the world** on the Random Battle ladder:
+
+| Peak | |
+|---|---|
+| Rank | **#7** on the Random Battle Top 500 |
+| Elo | **2,411** |
+| GXE | 89.3% |
+| Glicko-1 | 1,899 ± 25 |
+
+The first run, 23–25 September 2026:
 
 | | |
 |---|---|
 | Rated games | 274: 165 wins, 108 losses, 1 unfinished |
-| Rating | 1,000 → **2,210 Elo** at its peak, **#168** on the Gen 9 Random Battle ladder |
+| Rating | 1,000 → 2,210 Elo at its peak, #168 on the Gen 9 Random Battle ladder |
 | GXE | 83.5% |
 | Jev calls | 7,056, of which 45 (0.6%) failed and fell back to a legal move |
-| Tests | 421 |
+
+Tests: 539.
 
 `node scripts/ladder-report.mjs` rebuilds the record from the battle logs.
 

@@ -2966,3 +2966,11 @@ Full evidence: [BATTLE-AUDIT-2026-09-28-DUDUNSPARCE.md](BATTLE-AUDIT-2026-09-28-
 - Verification: full `npm test` **539 passed**, zero failed/skipped; independent Showdown mechanics
   **11 passed**; existing three full simulator games **182 / 91 / 67 decisions**, zero rejected/errors.
   Build and diff checks pass. No weights, guard strengths, prompts, search budgets or process controls changed.
+
+## Peak: #7 on the Random Battle ladder (recorded 2026-11-01)
+
+- TheNameIsJev reached **#7** on the Random Battle Top 500: **2,411 Elo**, 89.3% GXE, Glicko-1 1,899 ± 25, playing
+  against human players. Recorded from a ladder snapshot; the battle logs on this machine do not cover the climb, so
+  the games behind it are not broken down here.
+- Earlier marks for comparison: 2,210 Elo and #168 at the end of the first run (23–25 September), and the top 100
+  later in September.
