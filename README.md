@@ -114,7 +114,7 @@ fired, and each change was made after replaying those logs against what actually
 | `src/search/` | Conversion to poke-engine's format and the sampled-world search |
 | `src/ui/` | Live view, replays and performance page |
 | `src/logging/`, `src/config/` | JSONL battle logs and validated settings |
-| `test/` | 421 tests: requests, state, mechanics, payload shape, guards, search, UI |
+| `test/` | 539 tests: requests, state, mechanics, payload shape, guards, search, UI |
 | `vendor/poke-engine/` | The Rust search engine, pinned, with local fixes |
 | `extension/` | Chrome side panel that shows the live view beside a Showdown battle |
 | `scripts/` | Ladder report, audits, preflight, self-play bench, data refresh, deploy |
